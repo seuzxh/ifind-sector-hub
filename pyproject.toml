@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ifind-sector-hub"
+version = "0.1.0"
+description = "ifind 板块/概念数据层：客户端、三表存储、同步编排（公共组件）"
+requires-python = ">=3.9"
+dependencies = ["requests>=2.31.0"]
+
+[project.optional-dependencies]
+service = ["fastapi>=0.104.0", "pydantic>=2.5.0"]
+
+[tool.setuptools.packages.find]
+include = ["ifind_sector_hub*"]
