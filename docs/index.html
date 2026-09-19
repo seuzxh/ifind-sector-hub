@@ -75,12 +75,12 @@
   <tr>
     <td><code>client</code></td>
     <td>iFinD API 客户端</td>
-    <td>接口 1/2/3/4/5/6 + 实时行情 + smart_pick 智能选股；401 自动刷新后仅重试本轮一次；指数退避重试</td>
+    <td>接口 1-6 + 实时行情 + smart_pick 智能选股；<code>get_all_ths_boards</code> 动态枚举板块全集（concept / industry_l2 / l3）、<code>search_board_by_name</code> 按名搜板块；接口3/4 走 <code>ft.10jqka</code> 网关、其余走 <code>quantapi</code>；401 自动刷新后仅重试本轮一次</td>
   </tr>
   <tr>
     <td><code>storage</code></td>
     <td>三表存储</td>
-    <td><code>ths_concept_dict</code> / <code>concept_members</code> / <code>stock_concept_map</code>；MAX(date) 快照语义；replace 级联 + 同事务迁移钩子；5 个只读访问器</td>
+    <td><code>ths_concept_dict</code> / <code>concept_members</code> / <code>stock_concept_map</code>；MAX(date) 快照语义；replace 级联 + 同事务迁移钩子；<code>get_concept_members_map</code> 批量读 + 5 个只读访问器（monitor 裸 SQL 统一入口）</td>
   </tr>
   <tr>
     <td><code>sync</code></td>

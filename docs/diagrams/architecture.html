@@ -5411,7 +5411,7 @@
           <h3>数据源与凭据</h3>
         </div>
         <ul>
-          <li>&bull; IFindClient 覆盖接口1/2/3/5/6、实时行情与 smart_pick 智能选股</li>
+          <li>&bull; IFindClient 覆盖接口1-6、实时行情与 smart_pick（get_all_ths_boards 动态枚举板块全集）</li>
           <li>&bull; HTTP 401 经 TokenStore 双检刷新后仅重试本轮一次，防止死循环</li>
           <li>&bull; FileTokenStore 以 JSON + flock 落盘，跨进程共享刷新与 REFRESH_TOKEN 轮换</li>
         </ul>

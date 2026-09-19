@@ -69,7 +69,7 @@
   <tr><td>FR-1</td><td>A股代码/概念过滤</td><td><code>codes.is_a_share_code / is_a_share_concept</code></td><td><span class="badge green">已交付</span></td></tr>
   <tr><td>FR-2</td><td>token 刷新（进程内双检 + 跨进程 flock 持久化 + 轮换落盘）</td><td><code>tokens.TokenStore / FileTokenStore</code></td><td><span class="badge green">已交付</span></td></tr>
   <tr><td>FR-3</td><td>数据源客户端：接口 1/2/3/4/5/6、实时行情、smart_pick；401 刷新重试；指数退避</td><td><code>client.IFindClient</code></td><td><span class="badge green">已交付</span></td></tr>
-  <tr><td>FR-4</td><td>三表存储：快照读、幂等写、replace 级联 + 同事务迁移钩子、5 个只读访问器</td><td><code>storage.SectorStore</code></td><td><span class="badge green">已交付</span></td></tr>
+  <tr><td>FR-4</td><td>三表存储：快照读、幂等写、replace 级联 + 同事务迁移钩子、5 个只读访问器（monitor 五处裸 SQL 收敛为统一入口，映射见设计方案 §7.4）</td><td><code>storage.SectorStore</code></td><td><span class="badge green">已交付</span></td></tr>
   <tr><td>FR-5</td><td>同步编排：字典初始化、成分股并发、个股映射、全集补全、观察池刷新</td><td><code>sync.SectorSync</code></td><td><span class="badge green">已交付</span></td></tr>
   <tr><td>FR-6</td><td>门面聚合与集中配置</td><td><code>SectorHub / HubConfig</code></td><td><span class="badge green">已交付</span></td></tr>
   <tr><td>FR-7</td><td>可选 FastAPI 服务层（只读 + 刷新触发）</td><td><code>service.build_router</code></td><td><span class="badge green">已交付</span></td></tr>

@@ -13,19 +13,34 @@
       {
         "id": "sync-path",
         "label": "数据同步主链路",
-        "focus": ["consumers", "hub", "sync", "client", "ifind"],
+        "focus": [
+          "consumers",
+          "hub",
+          "sync",
+          "client",
+          "ifind"
+        ],
         "note": "消费方经门面触发同步，线程池并发拉取 iFinD 接口并入库。"
       },
       {
         "id": "token-lifecycle",
         "label": "Token 生命周期",
-        "focus": ["client", "tokens", "ifind"],
+        "focus": [
+          "client",
+          "tokens",
+          "ifind"
+        ],
         "note": "401 触发双检刷新并重试本轮；FileTokenStore 落盘跨进程共享。"
       },
       {
         "id": "snapshot-read",
         "label": "快照读路径",
-        "focus": ["consumers", "hub", "store", "db"],
+        "focus": [
+          "consumers",
+          "hub",
+          "store",
+          "db"
+        ],
         "note": "三表访问器不传日期即取 MAX(date) 最新快照。"
       }
     ]
@@ -36,8 +51,14 @@
       "type": "external",
       "label": "消费方",
       "sublabel": "monitor 等多平台",
-      "pos": [40, 300],
-      "size": [130, 60]
+      "pos": [
+        40,
+        300
+      ],
+      "size": [
+        130,
+        60
+      ]
     },
     {
       "id": "service",
@@ -45,98 +66,269 @@
       "label": "FastAPI Router",
       "sublabel": "可选服务层",
       "tag": "pip [service]",
-      "pos": [240, 140],
-      "size": [130, 64],
-      "sources": [{ "path": "ifind_sector_hub/service.py", "line": 14, "label": "build_router" }]
+      "pos": [
+        240,
+        140
+      ],
+      "size": [
+        130,
+        64
+      ],
+      "sources": [
+        {
+          "path": "ifind_sector_hub/service.py",
+          "line": 14,
+          "label": "build_router"
+        }
+      ]
     },
     {
       "id": "hub",
       "type": "backend",
       "label": "SectorHub",
       "sublabel": "门面 + HubConfig",
-      "pos": [240, 300],
-      "size": [130, 64],
-      "sources": [{ "path": "ifind_sector_hub/__init__.py", "line": 46, "label": "class SectorHub" }]
+      "pos": [
+        240,
+        300
+      ],
+      "size": [
+        130,
+        64
+      ],
+      "sources": [
+        {
+          "path": "ifind_sector_hub/__init__.py",
+          "line": 46,
+          "label": "class SectorHub"
+        }
+      ]
     },
     {
       "id": "sync",
       "type": "backend",
       "label": "SectorSync",
       "sublabel": "同步编排",
-      "pos": [450, 300],
-      "size": [130, 64],
-      "sources": [{ "path": "ifind_sector_hub/sync.py", "line": 16, "label": "class SectorSync" }]
+      "pos": [
+        450,
+        300
+      ],
+      "size": [
+        130,
+        64
+      ],
+      "sources": [
+        {
+          "path": "ifind_sector_hub/sync.py",
+          "line": 16,
+          "label": "class SectorSync"
+        }
+      ]
     },
     {
       "id": "client",
       "type": "backend",
       "label": "IFindClient",
       "sublabel": "接口1-6 + smart_pick",
-      "pos": [660, 300],
-      "size": [130, 64],
-      "sources": [{ "path": "ifind_sector_hub/client.py", "line": 21, "label": "class IFindClient" }]
+      "pos": [
+        660,
+        300
+      ],
+      "size": [
+        130,
+        64
+      ],
+      "sources": [
+        {
+          "path": "ifind_sector_hub/client.py",
+          "line": 21,
+          "label": "class IFindClient"
+        }
+      ]
     },
     {
       "id": "tokens",
       "type": "security",
       "label": "TokenStore / FileTokenStore",
       "sublabel": "双检刷新 · flock 落盘",
-      "pos": [620, 140],
-      "size": [200, 64],
-      "sources": [{ "path": "ifind_sector_hub/tokens.py", "line": 31, "label": "class TokenStore" }]
+      "pos": [
+        620,
+        140
+      ],
+      "size": [
+        200,
+        64
+      ],
+      "sources": [
+        {
+          "path": "ifind_sector_hub/tokens.py",
+          "line": 31,
+          "label": "class TokenStore"
+        }
+      ]
     },
     {
       "id": "ifind",
       "type": "external",
       "label": "iFinD API 网关",
       "sublabel": "quantapi / ft.10jqka",
-      "pos": [880, 300],
-      "size": [140, 64]
+      "pos": [
+        880,
+        300
+      ],
+      "size": [
+        140,
+        64
+      ]
     },
     {
       "id": "store",
       "type": "backend",
       "label": "SectorStore",
       "sublabel": "三表 DDL + 访问器",
-      "pos": [240, 460],
-      "size": [140, 64],
-      "sources": [{ "path": "ifind_sector_hub/storage.py", "line": 48, "label": "class SectorStore" }]
+      "pos": [
+        240,
+        460
+      ],
+      "size": [
+        140,
+        64
+      ],
+      "sources": [
+        {
+          "path": "ifind_sector_hub/storage.py",
+          "line": 48,
+          "label": "class SectorStore"
+        }
+      ]
     },
     {
       "id": "db",
       "type": "database",
       "label": "SQLite 板块库",
       "sublabel": "sector_attribution.db",
-      "pos": [40, 460],
-      "size": [140, 60]
+      "pos": [
+        40,
+        460
+      ],
+      "size": [
+        140,
+        60
+      ]
     }
   ],
   "boundaries": [
     {
       "kind": "region",
       "label": "ifind-sector-hub 包（核心依赖仅 requests）",
-      "wraps": ["service", "hub", "sync", "client", "tokens", "store"]
+      "wraps": [
+        "service",
+        "hub",
+        "sync",
+        "client",
+        "tokens",
+        "store"
+      ]
     }
   ],
   "connections": [
-    { "id": "consumers-to-hub", "from": "consumers", "to": "hub", "label": "SDK 调用", "variant": "emphasis" },
-    { "id": "consumers-to-service", "from": "consumers", "to": "service", "label": "REST 只读/触发", "variant": "dashed", "fromSide": "top", "toSide": "left" },
-    { "id": "service-to-hub", "from": "service", "to": "hub", "label": "build_router(hub)", "fromSide": "bottom", "toSide": "top", "labelAt": [305, 244] },
-    { "id": "hub-to-sync", "from": "hub", "to": "sync" },
-    { "id": "sync-to-client", "from": "sync", "to": "client", "label": "ThreadPoolExecutor 拉取", "variant": "emphasis", "labelAt": [620, 378] },
-    { "id": "client-to-ifind", "from": "client", "to": "ifind", "label": "HTTPS", "variant": "emphasis" },
-    { "id": "client-to-tokens", "from": "client", "to": "tokens", "label": "401 → 刷新", "variant": "security", "fromSide": "top", "toSide": "bottom" },
-    { "id": "tokens-to-ifind", "from": "tokens", "to": "ifind", "label": "get_access_token", "variant": "security", "fromSide": "right", "toSide": "top" },
-    { "id": "hub-to-store", "from": "hub", "to": "store", "label": "快照读访问器", "fromSide": "bottom", "toSide": "top" },
-    { "id": "sync-to-store", "from": "sync", "to": "store", "label": "入库", "fromSide": "bottom", "toSide": "right" },
-    { "id": "store-to-db", "from": "store", "to": "db", "label": "SQL" }
+    {
+      "id": "consumers-to-hub",
+      "from": "consumers",
+      "to": "hub",
+      "label": "SDK 调用",
+      "variant": "emphasis"
+    },
+    {
+      "id": "consumers-to-service",
+      "from": "consumers",
+      "to": "service",
+      "label": "REST 只读/触发",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "left"
+    },
+    {
+      "id": "service-to-hub",
+      "from": "service",
+      "to": "hub",
+      "label": "build_router(hub)",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        305,
+        244
+      ]
+    },
+    {
+      "id": "hub-to-sync",
+      "from": "hub",
+      "to": "sync"
+    },
+    {
+      "id": "sync-to-client",
+      "from": "sync",
+      "to": "client",
+      "label": "ThreadPoolExecutor 拉取",
+      "variant": "emphasis",
+      "labelAt": [
+        620,
+        378
+      ]
+    },
+    {
+      "id": "client-to-ifind",
+      "from": "client",
+      "to": "ifind",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "client-to-tokens",
+      "from": "client",
+      "to": "tokens",
+      "label": "401 → 刷新",
+      "variant": "security",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "tokens-to-ifind",
+      "from": "tokens",
+      "to": "ifind",
+      "label": "get_access_token",
+      "variant": "security",
+      "fromSide": "right",
+      "toSide": "top"
+    },
+    {
+      "id": "hub-to-store",
+      "from": "hub",
+      "to": "store",
+      "label": "快照读访问器",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "sync-to-store",
+      "from": "sync",
+      "to": "store",
+      "label": "入库",
+      "fromSide": "bottom",
+      "toSide": "right"
+    },
+    {
+      "id": "store-to-db",
+      "from": "store",
+      "to": "db",
+      "label": "SQL"
+    }
   ],
   "cards": [
     {
       "dot": "cyan",
       "title": "数据源与凭据",
       "items": [
-        "IFindClient 覆盖接口1/2/3/5/6、实时行情与 smart_pick 智能选股",
+        "IFindClient 覆盖接口1-6、实时行情与 smart_pick（get_all_ths_boards 动态枚举板块全集）",
         "HTTP 401 经 TokenStore 双检刷新后仅重试本轮一次，防止死循环",
         "FileTokenStore 以 JSON + flock 落盘，跨进程共享刷新与 REFRESH_TOKEN 轮换"
       ]

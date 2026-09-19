@@ -62,17 +62,29 @@
   防止"token 无效 ↔ 刷新"死循环。REFRESH_TOKEN 轮换由接口返回新值并自动持久化。
 </p>
 
-<h2>3. 客户端重试内核</h2>
+<h2>3. 客户端重试内核与接口清单</h2>
 <table>
   <tr><th>场景</th><th>行为</th></tr>
   <tr><td>HTTP 401</td><td>经 TokenStore 刷新后重试本轮（仅一次），不算入网络重试次数。</td></tr>
   <tr><td>网络异常 / 5xx</td><td>指数退避 <code>sleep(2^attempt)</code>，默认重试 3 次后抛出。</td></tr>
   <tr><td>批量接口</td><td>分片批大小默认 100（接口1 个股概念、接口5 概念信息），逐批请求。</td></tr>
 </table>
+
+<h3>3.1 接口清单（双网关拆分）</h3>
+<table>
+  <tr><th>能力</th><th>方法</th><th>网关</th><th>返回形态</th></tr>
+  <tr><td>接口1 · 个股所属概念</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L56"><code>get_stock_concepts</code></a> / <a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L343"><code>batch_get_stock_concepts</code></a></td><td><code>quantapi</code></td><td>API 原始响应；batch 版自动分片并聚合</td></tr>
+  <tr><td>接口2 · 概念成分股</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L81"><code>get_concept_members</code></a></td><td><code>quantapi</code>（data_pool · p03473）</td><td>API 原始响应</td></tr>
+  <tr><td>接口3 · 历史日K</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L100"><code>get_history_quotation</code></a></td><td><code>ft.10jqka</code>（cmd_history_quotation）</td><td>API 原始响应（支持周期/前复权参数）</td></tr>
+  <tr><td>接口4 · 高频 1min K</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L135"><code>get_high_frequency</code></a></td><td><code>ft.10jqka</code>（high_frequency）</td><td>API 原始响应</td></tr>
+  <tr><td>接口5 · 概念基本信息</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L215"><code>get_concept_basic_info</code></a> / <a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L387"><code>batch_get_concept_basic_info</code></a></td><td><code>quantapi</code></td><td>API 原始响应；batch 版自动分片</td></tr>
+  <tr><td>接口6 · 实时行情快照</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L162"><code>get_realtime_quotation</code></a> / <a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L185"><code>batch_get_realtime_quotation</code></a></td><td><code>quantapi</code>（real_time_quotation）</td><td>raw 原始响应；<b>batch 版返回解析后的 <code>{code: {indicator: value}}</code></b>（全库唯一解析型返回）</td></tr>
+  <tr><td>smart_pick · 枚举板块</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L246"><code>smart_pick_boards</code></a> / <a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L283"><code>get_all_ths_boards</code></a> / <a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L305"><code>search_board_by_name</code></a></td><td><code>quantapi</code>（smart_stock_picking）</td><td>结构化板块列表；<code>get_all_ths_boards</code> 按 concept / industry_l2 / industry_l3 三级去重枚举<b>板块全集</b>（替代硬编码 SECTOR_POOL_CODES）</td></tr>
+  <tr><td>smart_pick · 查个股</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L310"><code>smart_pick_stocks</code></a></td><td><code>quantapi</code></td><td>结构化个股列表（自然语言句式，如"机器人概念板块成分股"）</td></tr>
+</table>
 <p>
-  接口覆盖：接口1 个股所属概念、接口2 概念成分股（p03473 data_pool）、接口3 历史日K、接口4 高频 1min K、
-  接口5 概念基本信息、接口6 实时行情快照（含批量），以及 smart_stock_picking 智能选股
-  （<code>smart_pick_boards</code> 枚举指数板块 / <code>smart_pick_stocks</code> 自然语言选股）。
+  注意流量在<b>两个网关</b>间拆分：接口3/4（历史与高频行情）走 <code>ft.10jqka.com.cn</code>，
+  其余（含 token 刷新 <code>get_access_token</code>）走 <code>quantapi.51ifind.com</code>——两者共用同一套 token 与重试内核。
 </p>
 
 <h2>4. 三表存储与快照语义</h2>
@@ -95,7 +107,7 @@
     <td><code>stock_concept_map</code></td>
     <td>(stock_code, concept_code, map_date)</td>
     <td><code>map_date</code>（YYYY-MM-DD）</td>
-    <td>个股-概念映射（含权重，默认 1.0）；索引 <code>idx_scm_concept</code>。</td>
+    <td>个股-概念映射；写入时<b>等权分配</b> weight = 1/N（N 为该股概念数，DDL 的 <code>DEFAULT 1.0</code> 仅兜底）；索引 <code>idx_scm_concept</code>。</td>
   </tr>
 </table>
 <h3>4.2 MAX(date) 快照语义</h3>
@@ -103,9 +115,20 @@
   所有读方法（<code>get_concept_members</code> / <code>get_concept_members_map</code> / <code>get_stock_concepts</code> 等）
   不传日期时，子查询取 <code>MAX(date)</code> 作为"最新快照"再过滤——同一天多次同步或历史数据并存时，
   读到的始终是最新一份，且<b>历史不清理</b>（永久缓存语义，自 monitor 原样迁移）。
-  全市场股票池（<code>get_all_member_stock_codes</code> / <code>get_mapped_stock_codes</code>）同样基于最新快照去重。
+  全市场股票池（<code>get_all_member_stock_codes</code> / <code>get_all_mapped_stock_codes</code>）同样基于最新快照去重，SQL 内联 <code>LIKE '%.SH'|'.SZ'|'.BJ'</code> 只返回沪深北代码。
 </p>
-<h3>4.3 幂等写入</h3>
+<h3>4.3 读访问器族与返回增强</h3>
+<ul>
+  <li><b>批量读</b>：<code>get_concept_members_map(codes)</code> 单连接一次 SQL 取多个概念的最新成分股（按 concept_code / stock_code 排序），避免逐概念建连接——同步与消费方的热路径。</li>
+  <li><b>JOIN 增强</b>：<code>get_stock_concepts(stock_code)</code> 联表 <code>ths_concept_dict</code>，直接返回 <code>concept_code + concept_name + weight</code> 三元组，消费方无需二次查名。</li>
+  <li><b>五个常用只读访问器</b>（L296-339，monitor 各处裸 SQL 的统一入口）：<code>get_concept_names</code>、<code>get_latest_member_date</code>、<code>get_latest_member_stock_names</code>、<code>get_all_member_stock_names</code>（全历史 MAX(stock_name)）、<code>get_latest_members_snapshot</code>（最新快照全体成分，返回 (日期, {概念: [(代码, 名称)]})）。</li>
+</ul>
+<h3>4.4 连接与事务</h3>
+<p>
+  每次操作经 <code>_connect()</code> 上下文管理器建立短连接：<code>PRAGMA busy_timeout=5000</code> + <code>PRAGMA synchronous=NORMAL</code>，
+  正常路径 commit、异常路径 rollback 后抛出——多线程并发入库（同步内核 8 线程）与消费方同库读写共存时靠 busy_timeout 阻塞等待而非报错。
+</p>
+<h3>4.5 幂等写入</h3>
 <p>三表写入统一 <code>INSERT OR REPLACE</code>，以主键天然幂等——同日重跑同步管线不产生重复行。</p>
 
 <h2>5. replace 级联与同事务迁移钩子</h2>
@@ -128,7 +151,63 @@
   <li><b>观察池刷新</b>：<code>refresh_dict_and_members</code> 对给定码集"接口5 刷字典 + 接口2 并发刷成分股"一步完成。</li>
 </ul>
 
-<h2>7. 可选 FastAPI 服务层</h2>
+<h2>7. 模块调用关联（CodeGraph 实测）</h2>
+<p>以下依赖方向、热点方法调用方统计与测试覆盖，均来自 CodeGraph 对当前代码的实测关联分析。</p>
+
+<h3>7.1 依赖方向（单向无环）</h3>
+<table>
+  <tr><th>模块</th><th>依赖</th></tr>
+  <tr><td><code>service</code></td><td><code>hub</code>（<code>build_router</code> 持有门面，间接触达全部）</td></tr>
+  <tr><td><code>SectorHub</code></td><td><code>client</code> / <code>storage</code> / <code>sync</code> / <code>tokens.resolve_tokens</code></td></tr>
+  <tr><td><code>sync</code></td><td><code>client</code>（4 个接口方法）、<code>storage</code>（4 写 + 2 读）、<code>codes</code>（2 个过滤函数）</td></tr>
+  <tr><td><code>client</code></td><td><code>tokens</code>（唯一触点：<code>_post</code> 401 分支 → <code>refresh_access_token</code>）</td></tr>
+  <tr><td><code>storage</code> / <code>codes</code></td><td>无包内依赖（叶子模块，仅标准库）</td></tr>
+</table>
+
+<h3>7.2 热点方法（blast radius）</h3>
+<table>
+  <tr><th>方法</th><th>定义</th><th>主要调用方（实测）</th><th>测试</th></tr>
+  <tr><td><code>client.get_concept_members</code></td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L81">client.py:81</a></td><td><code>sync._fetch_one_concept_members</code>（线程池 worker）等 6 处；store 同名方法是 service 读端点的另一入口（注意两类同名不同主）</td><td>test_sync / test_storage</td></tr>
+  <tr><td><code>client.batch_get_stock_concepts</code></td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L343">client.py:343</a></td><td>sync 内 4 处：个股映射同步、全集补全的逐批扫描</td><td>test_client</td></tr>
+  <tr><td><code>SectorStore</code>（类）</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/storage.py#L48">storage.py:48</a></td><td><code>__init__.py</code> 门面聚合 7 处引用</td><td>test_storage + test_sync</td></tr>
+  <tr><td><code>store.get_all_member_stock_codes</code></td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/storage.py#L152">storage.py:152</a></td><td><code>sync.init_concept_universe</code> 等 2 处（全市场股票池唯一入口）</td><td>test_storage</td></tr>
+  <tr><td><code>store.get_concept_names</code></td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/storage.py#L296">storage.py:296</a></td><td><code>service</code> 的 <code>GET /concepts</code></td><td>test_storage</td></tr>
+  <tr><td><code>codes.is_a_share_code</code></td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/codes.py#L11">codes.py:11</a></td><td>6 处：sync 成分股默认过滤、<code>__init__</code> 导出</td><td>test_codes</td></tr>
+</table>
+
+<h3>7.3 服务层端点 → 内部调用链</h3>
+<table>
+  <tr><th>端点</th><th>调用链</th></tr>
+  <tr><td><code>GET /concepts</code></td><td><code>store.get_concept_names</code></td></tr>
+  <tr><td><code>GET /concepts/{code}/members</code></td><td><code>store.get_concept_members</code>（MAX(date) 快照）</td></tr>
+  <tr><td><code>GET /stocks/{code}/concepts</code></td><td><code>store.get_stock_concepts</code>（JOIN 字典带名称）</td></tr>
+  <tr><td><code>POST /sync/members</code></td><td><code>sync.sync_concept_members</code> → 8 并发 { <code>client.get_concept_members</code> → <code>store.save_concept_members</code> }</td></tr>
+</table>
+
+<h3>7.4 monitor 裸 SQL → 访问器迁移映射</h3>
+<p>五个常用访问器的 docstring 记录了各自替代的 monitor 原裸 SQL 位置，是接入替换时的对照清单：</p>
+<table>
+  <tr><th>访问器</th><th>替代的 monitor 原位置</th></tr>
+  <tr><td><code>get_concept_names</code></td><td>api_server / realtime_engine / sector_manage</td></tr>
+  <tr><td><code>get_latest_member_date</code></td><td>kg_sources._latest_snapshot_date</td></tr>
+  <tr><td><code>get_latest_member_stock_names</code></td><td>realtime_engine / api_server / auction_engine</td></tr>
+  <tr><td><code>get_all_member_stock_names</code></td><td>theme_catalyst.build_market_historical</td></tr>
+  <tr><td><code>get_latest_members_snapshot</code></td><td>theme_catalyst.theme_members_and_size</td></tr>
+</table>
+
+<h3>7.5 测试覆盖映射（33 tests）</h3>
+<table>
+  <tr><th>测试文件</th><th>数量</th><th>覆盖点</th></tr>
+  <tr><td><code>test_client.py</code></td><td>10</td><td>401 刷新后仅重试一次、指数退避、批量分片、smart_pick 解析</td></tr>
+  <tr><td><code>test_storage.py</code></td><td>6</td><td>快照读、幂等写、replace 级联与钩子事务性、访问器</td></tr>
+  <tr><td><code>test_sync.py</code></td><td>6</td><td>并发内核失败不中断、全集补全回路、观察池刷新</td></tr>
+  <tr><td><code>test_tokens.py</code></td><td>6</td><td>进程内双检命中、REFRESH_TOKEN 轮换落盘、flock 跨进程双检</td></tr>
+  <tr><td><code>test_service.py</code></td><td>3</td><td>4 个端点（含同步触发）</td></tr>
+  <tr><td><code>test_codes.py</code></td><td>2</td><td>个股后缀 / 概念前缀白名单</td></tr>
+</table>
+<p>外部 HTTP 全部以桩替换，测试离线可跑（标准库 <code>unittest</code>，无第三方测试依赖）：<code>python -m unittest discover -s tests</code>。</p>
+
+<h2>8. 可选 FastAPI 服务层</h2>
 <pre><code>pip install "ifind-sector-hub[service]"
 
 from ifind_sector_hub.service import build_router
@@ -142,7 +221,7 @@ app.include_router(build_router(hub))   # 挂到任一 FastAPI 应用</code></pr
 </table>
 <p>本期<b>只交付不部署</b>；未安装 fastapi 时 import 该模块报 ImportError，不影响库核心。</p>
 
-<h2>8. 兼容性决策记录</h2>
+<h2>9. 兼容性决策记录</h2>
 <table>
   <tr><th>决策</th><th>理由</th></tr>
   <tr>
@@ -162,15 +241,6 @@ app.include_router(build_router(hub))   # 挂到任一 FastAPI 应用</code></pr
     <td>首次 bootstrap 无需改代码；接入 FileTokenStore 后以文件为准。</td>
   </tr>
 </table>
-
-<h2>9. 测试策略</h2>
-<ul>
-  <li>33 个测试 · <code>python -m unittest discover -s tests</code> · 全部通过。</li>
-  <li>按模块分层：<code>test_codes</code>（过滤白名单）、<code>test_tokens</code>（双检命中/轮换落盘/跨进程锁）、
-    <code>test_client</code>（401 刷新重试一次、退避、分片）、<code>test_storage</code>（快照读、幂等、replace 级联与钩子事务性、访问器）、
-    <code>test_sync</code>（并发内核失败不中断、全集补全、观察池刷新）、<code>test_service</code>（4 端点）。</li>
-  <li>外部 HTTP 用桩替换，全部测试离线可跑（标准库 unittest，无第三方测试依赖）。</li>
-</ul>
 
 </main>
 
