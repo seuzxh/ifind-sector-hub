@@ -1,0 +1,339 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "板块数据同步编排流程",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "daily-pipeline",
+        "label": "日更主链路",
+        "focus": [
+          "start",
+          "dict",
+          "members",
+          "map",
+          "universe",
+          "done"
+        ],
+        "note": "字典 → 成分股并发 → 个股映射 → 全集补全，四步串行的日更管线。"
+      },
+      {
+        "id": "concurrent-core",
+        "label": "并发与容错",
+        "focus": [
+          "members",
+          "api2",
+          "members_table"
+        ],
+        "note": "ThreadPoolExecutor 并发拉取，单概念失败不中断，进度计数带锁。"
+      },
+      {
+        "id": "universe-loop",
+        "label": "全集补全回路",
+        "focus": [
+          "map",
+          "universe",
+          "api1",
+          "members_table",
+          "map_table"
+        ],
+        "note": "扫全市场股票反向发现新概念码，复用接口2/5 补拉入库。"
+      }
+    ]
+  },
+  "lanes": [
+    {
+      "id": "caller",
+      "label": "调用方"
+    },
+    {
+      "id": "orchestr",
+      "label": "SectorSync 编排"
+    },
+    {
+      "id": "source",
+      "label": "iFinD 数据源"
+    },
+    {
+      "id": "storage",
+      "label": "SQLite 三表"
+    }
+  ],
+  "phases": [
+    {
+      "id": "trigger",
+      "label": "触发",
+      "fromCol": 0,
+      "toCol": 0
+    },
+    {
+      "id": "dict-stage",
+      "label": "字典",
+      "fromCol": 1,
+      "toCol": 1
+    },
+    {
+      "id": "members-stage",
+      "label": "成分股并发",
+      "fromCol": 2,
+      "toCol": 2,
+      "variant": "emphasis"
+    },
+    {
+      "id": "map-stage",
+      "label": "个股映射",
+      "fromCol": 3,
+      "toCol": 3
+    },
+    {
+      "id": "universe-stage",
+      "label": "补全与返回",
+      "fromCol": 4,
+      "toCol": 5
+    }
+  ],
+  "groups": [
+    {
+      "id": "persistence",
+      "label": "幂等落库",
+      "lane": "storage",
+      "fromCol": 1,
+      "toCol": 3,
+      "variant": "dashed"
+    }
+  ],
+  "mainPath": [
+    "start",
+    "dict",
+    "members",
+    "map",
+    "universe",
+    "done"
+  ],
+  "nodes": [
+    {
+      "id": "start",
+      "lane": "caller",
+      "col": 0,
+      "type": "external",
+      "label": "发起同步",
+      "sublabel": "hub.sync.* / REST 触发",
+      "width": 140
+    },
+    {
+      "id": "done",
+      "lane": "caller",
+      "col": 5,
+      "type": "external",
+      "label": "返回统计",
+      "sublabel": "saved_records / 新增码数",
+      "width": 140
+    },
+    {
+      "id": "dict",
+      "lane": "orchestr",
+      "col": 1,
+      "type": "backend",
+      "label": "字典初始化",
+      "sublabel": "init_concept_dict · 过滤海外概念",
+      "width": 150
+    },
+    {
+      "id": "members",
+      "lane": "orchestr",
+      "col": 2,
+      "type": "backend",
+      "label": "成分股并发拉取",
+      "sublabel": "ThreadPoolExecutor ×8",
+      "tag": "失败概念不中断",
+      "width": 150
+    },
+    {
+      "id": "map",
+      "lane": "orchestr",
+      "col": 3,
+      "type": "backend",
+      "label": "个股-概念映射",
+      "sublabel": "sync_stock_concept_map",
+      "width": 150
+    },
+    {
+      "id": "universe",
+      "lane": "orchestr",
+      "col": 4,
+      "type": "backend",
+      "label": "全集补全",
+      "sublabel": "扫全市场 → 新概念码",
+      "tag": "可跳过",
+      "width": 150
+    },
+    {
+      "id": "api5",
+      "lane": "source",
+      "col": 1,
+      "type": "cloud",
+      "label": "接口5 概念信息",
+      "sublabel": "batch_get_concept_basic_info",
+      "width": 150
+    },
+    {
+      "id": "api2",
+      "lane": "source",
+      "col": 2,
+      "type": "cloud",
+      "label": "接口2 成分股",
+      "sublabel": "data_pool · p03473",
+      "width": 150
+    },
+    {
+      "id": "api1",
+      "lane": "source",
+      "col": 3,
+      "type": "cloud",
+      "label": "接口1 个股概念",
+      "sublabel": "batch_get_stock_concepts",
+      "width": 150
+    },
+    {
+      "id": "dict_table",
+      "lane": "storage",
+      "col": 1,
+      "type": "database",
+      "label": "ths_concept_dict",
+      "sublabel": "字典表",
+      "width": 150
+    },
+    {
+      "id": "members_table",
+      "lane": "storage",
+      "col": 2,
+      "type": "database",
+      "label": "concept_members",
+      "sublabel": "成分股表",
+      "width": 150
+    },
+    {
+      "id": "map_table",
+      "lane": "storage",
+      "col": 3,
+      "type": "database",
+      "label": "stock_concept_map",
+      "sublabel": "映射表",
+      "width": 150
+    }
+  ],
+  "edges": [
+    {
+      "id": "start-dict",
+      "from": "start",
+      "to": "dict",
+      "variant": "emphasis",
+      "role": "main"
+    },
+    {
+      "id": "dict-api5",
+      "from": "dict",
+      "to": "api5",
+      "label": "批量拉取",
+      "role": "main"
+    },
+    {
+      "id": "api5-dict-table",
+      "from": "api5",
+      "to": "dict_table",
+      "label": "save_concept_dict"
+    },
+    {
+      "id": "dict-members",
+      "from": "dict",
+      "to": "members",
+      "role": "main"
+    },
+    {
+      "id": "members-api2",
+      "from": "members",
+      "to": "api2",
+      "label": "逐概念并发",
+      "variant": "emphasis",
+      "role": "main"
+    },
+    {
+      "id": "api2-members-table",
+      "from": "api2",
+      "to": "members_table",
+      "label": "save_concept_members"
+    },
+    {
+      "id": "members-map",
+      "from": "members",
+      "to": "map",
+      "role": "main"
+    },
+    {
+      "id": "map-api1",
+      "from": "map",
+      "to": "api1",
+      "label": "按批次拉取",
+      "role": "main"
+    },
+    {
+      "id": "api1-map-table",
+      "from": "api1",
+      "to": "map_table",
+      "label": "save_stock_concept_map"
+    },
+    {
+      "id": "map-universe",
+      "from": "map",
+      "to": "universe",
+      "label": "触发补全",
+      "role": "main"
+    },
+    {
+      "id": "universe-api1",
+      "from": "universe",
+      "to": "api1",
+      "label": "全市场扫描",
+      "variant": "dashed",
+      "role": "return"
+    },
+    {
+      "id": "universe-done",
+      "from": "universe",
+      "to": "done",
+      "label": "新码补拉入库 · 返回统计",
+      "role": "return"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "并发内核",
+      "items": [
+        "ThreadPoolExecutor 默认 8 并发逐概念拉接口2",
+        "单概念异常只记 WARN 不中断，失败码列表末尾汇总",
+        "进度计数器加锁，每 100 个概念打印一次进度"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "三表落库",
+      "items": [
+        "INSERT OR REPLACE 幂等写入，同日重跑不产生重复",
+        "字典/映射表日期 YYYY-MM-DD，成分股表 YYYYMMDD（沿用原语义）",
+        "读方法不传日期取 MAX(date) 最新快照"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "全集补全",
+      "items": [
+        "从成分股表反查全市场股票池（最新快照）",
+        "接口1 扫描每只股票的概念，反向收集 A 股概念码",
+        "字典未覆盖的新码经接口5 补字典、接口2 补成分股"
+      ]
+    }
+  ]
+}

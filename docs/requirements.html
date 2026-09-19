@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>需求 · ifind-sector-hub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="inner">
+    <a class="brand" href="index.html"><span class="dot"></span>ifind-sector-hub</a>
+    <nav class="site-nav">
+      <a href="index.html">概览</a>
+      <a class="active" href="requirements.html">需求</a>
+      <a href="design.html">设计方案</a>
+      <a href="architecture.html">架构图</a>
+      <a href="sync-workflow.html">同步流程</a>
+      <a href="token-lifecycle.html">Token 时序</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<h1>需求</h1>
+<p class="lead">为什么要有 ifind-sector-hub：把散落在 monitor 项目里的 ifind 板块数据层，抽成一个语义等价、可多平台复用的公共组件。</p>
+
+<h2>背景</h2>
+<p>
+  monitor（<code>ifind-sector-attribution</code>）项目中，板块/概念数据层的逻辑散落在多处：
+  <code>api_server</code> / <code>realtime_engine</code> / <code>sector_manage</code> / <code>kg_sources</code> / <code>auction_engine</code>
+  各自裸写 SQL 读取概念字典与成分股；token 刷新靠正则改写 <code>config_local.py</code>；
+  同步管线（<code>sync_pipeline.py</code>）与业务代码耦合。
+  当第二个消费平台需要同一份数据时，复制粘贴不可维护——因此将数据层抽离为独立包。
+</p>
+
+<h2>目标</h2>
+<ul>
+  <li><b>单一职责的数据层组件</b>：数据源客户端（token 生命周期 / 重试 / 分片）、三表存储（字典 / 成分股 / 个股-概念映射）、同步编排，三者可独立使用也可经门面组合。</li>
+  <li><b>原语义等价迁移</b>：并发内核、日志行为、SQL 语义自 monitor 原样迁移，monitor 接入替换后行为不变。</li>
+  <li><b>多消费方复用</b>：Python SDK（核心）+ 可选 FastAPI 服务层（HTTP 供数），指向任意 SQLite 库文件（monitor 沿用 <code>sector_attribution.db</code>）。</li>
+  <li><b>token 管理现代化</b>：双检锁刷新替代正则改写配置；<code>FileTokenStore</code> 让同机多进程共用账号时共享刷新结果与 REFRESH_TOKEN 轮换。</li>
+  <li><b>裸 SQL 统一入口</b>：5 个只读访问器（概念名映射、最新快照日期、最新股票名映射等）替代消费方各处手写查询。</li>
+</ul>
+
+<h2>非目标（本期明确不做）</h2>
+<ul>
+  <li><b>不部署服务层</b>：FastAPI router 只交付不部署，由消费方自行决定挂载方式。</li>
+  <li><b>不做历史数据清理</b>：保留 monitor 的永久缓存快照语义，三表只增不清。</li>
+  <li><b>不改变既有表结构</b>：三表 DDL 与 monitor 库文件完全兼容，无需迁移数据。</li>
+  <li><b>不修复历史不一致</b>：字典/映射表 <code>YYYY-MM-DD</code> 与成分股表 <code>YYYYMMDD</code> 的日期格式差异原样保留（见设计方案）。</li>
+</ul>
+
+<h2>约束</h2>
+<table>
+  <tr><th>约束</th><th>说明</th></tr>
+  <tr><td>核心依赖最小化</td><td>仅 <code>requests</code>；存储走标准库 <code>sqlite3</code>，测试用标准库 <code>unittest</code>。</td></tr>
+  <tr><td>可选依赖隔离</td><td>FastAPI / pydantic 放在 <code>[service]</code> extra，未安装时 import service 模块报 ImportError，不影响库核心使用。</td></tr>
+  <tr><td>数据域约束</td><td>只服务沪深北 A 股板块/概念数据：个股后缀 <code>.SH/.SZ/.BJ</code>，概念前缀白名单 <code>700/881/883/884/885/886</code>（861/864/865/871/875 为海外，过滤）。</td></tr>
+  <tr><td>库文件可插拔</td><td><code>SectorStore</code> 可指向任意 SQLite 路径，自建目录、自动建表（<code>CREATE TABLE IF NOT EXISTS</code>）。</td></tr>
+  <tr><td>配置注入</td><td><code>IFindClient</code> 不再读全局配置，base_url / 超时 / 重试 / 批大小全部构造注入；token 解析顺序：显式传入 &gt; 环境变量 <code>IFIND_ACCESS_TOKEN</code> / <code>IFIND_REFRESH_TOKEN</code>。</td></tr>
+</table>
+
+<h2>功能需求清单</h2>
+<table>
+  <tr><th>#</th><th>需求</th><th>对应实现</th><th>状态</th></tr>
+  <tr><td>FR-1</td><td>A股代码/概念过滤</td><td><code>codes.is_a_share_code / is_a_share_concept</code></td><td><span class="badge green">已交付</span></td></tr>
+  <tr><td>FR-2</td><td>token 刷新（进程内双检 + 跨进程 flock 持久化 + 轮换落盘）</td><td><code>tokens.TokenStore / FileTokenStore</code></td><td><span class="badge green">已交付</span></td></tr>
+  <tr><td>FR-3</td><td>数据源客户端：接口 1/2/3/4/5/6、实时行情、smart_pick；401 刷新重试；指数退避</td><td><code>client.IFindClient</code></td><td><span class="badge green">已交付</span></td></tr>
+  <tr><td>FR-4</td><td>三表存储：快照读、幂等写、replace 级联 + 同事务迁移钩子、5 个只读访问器</td><td><code>storage.SectorStore</code></td><td><span class="badge green">已交付</span></td></tr>
+  <tr><td>FR-5</td><td>同步编排：字典初始化、成分股并发、个股映射、全集补全、观察池刷新</td><td><code>sync.SectorSync</code></td><td><span class="badge green">已交付</span></td></tr>
+  <tr><td>FR-6</td><td>门面聚合与集中配置</td><td><code>SectorHub / HubConfig</code></td><td><span class="badge green">已交付</span></td></tr>
+  <tr><td>FR-7</td><td>可选 FastAPI 服务层（只读 + 刷新触发）</td><td><code>service.build_router</code></td><td><span class="badge green">已交付</span></td></tr>
+</table>
+
+<h2>验收标准</h2>
+<ul>
+  <li>33 个单元测试（6 个测试文件）全部通过：<code>python -m unittest discover -s tests</code>。</li>
+  <li>覆盖 token 双检/落盘、客户端 401 重试、三表快照读、replace 级联、并发同步、服务层端点。</li>
+  <li>monitor 可用 <code>SectorHub</code> 替换原有散落逻辑，库文件与表结构不变。</li>
+</ul>
+
+<div class="note">
+  配套视图：<a href="architecture.html">组件架构图</a> 展示模块关系与依赖边界；
+  <a href="sync-workflow.html">同步流程图</a> 展示 FR-5 的编排细节；
+  <a href="token-lifecycle.html">Token 时序图</a> 展示 FR-2 的刷新语义。
+</div>
+
+</main>
+
+<footer class="site-footer">
+  <div class="inner">
+    <span>ifind-sector-hub v0.1.0 · 需求文档</span>
+    <span><a href="https://github.com/seuzxh/ifind-sector-hub">GitHub 仓库</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

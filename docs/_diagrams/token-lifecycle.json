@@ -1,0 +1,245 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "access_token 401 刷新时序",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "refresh-flow",
+        "label": "401 刷新主链路",
+        "focus": [
+          "client",
+          "tokens",
+          "tokenfile",
+          "ifind"
+        ],
+        "note": "401 触发双检刷新，换新后仅重试本轮一次。"
+      },
+      {
+        "id": "double-check",
+        "label": "双检命中",
+        "focus": [
+          "tokens",
+          "tokenfile"
+        ],
+        "note": "锁内比对 stale token，他线程/进程已刷新则直接复用。"
+      },
+      {
+        "id": "retry-once",
+        "label": "重试语义",
+        "focus": [
+          "caller",
+          "client",
+          "ifind"
+        ],
+        "note": "刷新成功后仅重试本轮一次，防止刷新失败死循环。"
+      }
+    ]
+  },
+  "participants": [
+    {
+      "id": "caller",
+      "type": "external",
+      "label": "调用方",
+      "sublabel": "hub.sync / service"
+    },
+    {
+      "id": "client",
+      "type": "backend",
+      "label": "IFindClient",
+      "sublabel": "_post 重试内核"
+    },
+    {
+      "id": "tokens",
+      "type": "security",
+      "label": "TokenStore",
+      "sublabel": "刷新双检锁"
+    },
+    {
+      "id": "tokenfile",
+      "type": "database",
+      "label": "token.json",
+      "sublabel": "flock 持久化"
+    },
+    {
+      "id": "ifind",
+      "type": "cloud",
+      "label": "iFinD API",
+      "sublabel": "quantapi 网关"
+    }
+  ],
+  "messages": [
+    {
+      "id": "call-api",
+      "from": "caller",
+      "to": "client",
+      "y": 185,
+      "label": "get_concept_members()",
+      "variant": "emphasis"
+    },
+    {
+      "id": "post-stale",
+      "from": "client",
+      "to": "ifind",
+      "y": 225,
+      "label": "POST 接口2（stale access_token）",
+      "variant": "default"
+    },
+    {
+      "id": "unauthorized",
+      "from": "ifind",
+      "to": "client",
+      "y": 262,
+      "label": "HTTP 401",
+      "variant": "security",
+      "note": "仅 access_token 过期走此路径"
+    },
+    {
+      "id": "request-refresh",
+      "from": "client",
+      "to": "tokens",
+      "y": 310,
+      "label": "refresh_access_token(stale)",
+      "variant": "security"
+    },
+    {
+      "id": "read-file",
+      "from": "tokens",
+      "to": "tokenfile",
+      "y": 350,
+      "label": "flock 读当前 token",
+      "variant": "dashed"
+    },
+    {
+      "id": "file-value",
+      "from": "tokenfile",
+      "to": "tokens",
+      "y": 388,
+      "label": "access / refresh",
+      "variant": "return",
+      "note": "文件值 ≠ stale：他进程刚刷过，直接复用"
+    },
+    {
+      "id": "fetch-token",
+      "from": "tokens",
+      "to": "ifind",
+      "y": 436,
+      "label": "POST get_access_token（refresh_token）",
+      "variant": "security"
+    },
+    {
+      "id": "new-tokens",
+      "from": "ifind",
+      "to": "tokens",
+      "y": 474,
+      "label": "新 access_token + 轮换 refresh_token",
+      "variant": "return"
+    },
+    {
+      "id": "write-file",
+      "from": "tokens",
+      "to": "tokenfile",
+      "y": 514,
+      "label": "flock 写回",
+      "variant": "dashed"
+    },
+    {
+      "id": "file-ok",
+      "from": "tokenfile",
+      "to": "tokens",
+      "y": 548,
+      "label": "落盘 ok",
+      "variant": "return"
+    },
+    {
+      "id": "fresh-token",
+      "from": "tokens",
+      "to": "client",
+      "y": 586,
+      "label": "可用 access_token",
+      "variant": "return"
+    },
+    {
+      "id": "post-fresh",
+      "from": "client",
+      "to": "ifind",
+      "y": 624,
+      "label": "POST 接口2（新 token）",
+      "variant": "emphasis",
+      "note": "仅重试本轮一次，防死循环"
+    },
+    {
+      "id": "ok-tables",
+      "from": "ifind",
+      "to": "client",
+      "y": 658,
+      "label": "200 tables JSON",
+      "variant": "return"
+    },
+    {
+      "id": "data-back",
+      "from": "client",
+      "to": "caller",
+      "y": 670,
+      "label": "成分股数据",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "client",
+      "from": 180,
+      "to": 678,
+      "type": "backend"
+    },
+    {
+      "participant": "ifind",
+      "from": 220,
+      "to": 664,
+      "type": "cloud"
+    },
+    {
+      "participant": "tokens",
+      "from": 305,
+      "to": 592,
+      "type": "security"
+    },
+    {
+      "participant": "tokenfile",
+      "from": 345,
+      "to": 554,
+      "type": "database"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "安全语义",
+      "items": [
+        "HTTP 401 才触发刷新路径，其余异常走指数退避重试",
+        "刷新成功后仅重试本轮请求一次，防止刷新失败死循环",
+        "REFRESH_TOKEN 轮换后自动持久化，旧 refresh_token 不再复用"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "进程内双检",
+      "items": [
+        "threading.Lock 内先比对调用方持有的 stale token",
+        "他线程已刷新则直接复用新 token，不再打刷新接口",
+        "TokenStore 默认内存态，重启进程重新引导"
+      ]
+    },
+    {
+      "dot": "orange",
+      "title": "跨进程共享",
+      "items": [
+        "FileTokenStore 在 flock 文件锁内做跨进程双检",
+        "同机多消费方共用账号时，刷新结果与轮换自动共享",
+        "取代旧实现正则改写 config_local.py 的做法"
+      ]
+    }
+  ]
+}

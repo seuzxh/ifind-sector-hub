@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ifind-sector-hub · 板块数据层公共组件</title>
+<meta name="description" content="ifind 板块/概念数据层公共组件：数据源客户端、三表存储、同步编排。架构、设计方案与需求文档。">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="inner">
+    <a class="brand" href="index.html"><span class="dot"></span>ifind-sector-hub</a>
+    <nav class="site-nav">
+      <a class="active" href="index.html">概览</a>
+      <a href="requirements.html">需求</a>
+      <a href="design.html">设计方案</a>
+      <a href="architecture.html">架构图</a>
+      <a href="sync-workflow.html">同步流程</a>
+      <a href="token-lifecycle.html">Token 时序</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<h1>ifind 板块/概念数据层公共组件</h1>
+<p class="lead">从 monitor（ifind-sector-attribution）抽离的公共数据层：iFinD 数据源客户端、三表快照存储、同步编排，供多平台复用。</p>
+
+<div class="stats">
+  <div class="stat"><div class="num">7</div><div class="lbl">模块（含门面）</div></div>
+  <div class="stat"><div class="num">33</div><div class="lbl">单元测试 · 全部通过</div></div>
+  <div class="stat"><div class="num">1</div><div class="lbl">核心依赖（requests）</div></div>
+  <div class="stat"><div class="num">3</div><div class="lbl">交互式架构图</div></div>
+</div>
+
+<h2>文档导航</h2>
+<div class="grid">
+  <div class="card">
+    <a class="card-link" href="requirements.html">需求 →</a>
+    <p>抽离背景、目标与非目标、兼容性约束、验收标准。</p>
+  </div>
+  <div class="card">
+    <a class="card-link" href="design.html">设计方案 →</a>
+    <p>六个模块的设计要点：token 生命周期、重试内核、三表快照语义、并发同步、迁移钩子、可选服务层。</p>
+  </div>
+  <div class="card">
+    <a class="card-link" href="architecture.html">组件架构图 →</a>
+    <p>交互式架构总览：消费方、门面、数据源、存储的组件关系与依赖边界（可缩放/聚焦/检索）。</p>
+  </div>
+  <div class="card">
+    <a class="card-link" href="sync-workflow.html">同步编排流程图 →</a>
+    <p>日更管线泳道图：字典 → 成分股并发 → 个股映射 → 全集补全，四泳道展示编排/数据源/存储分工。</p>
+  </div>
+  <div class="card">
+    <a class="card-link" href="token-lifecycle.html">Token 刷新时序图 →</a>
+    <p>HTTP 401 触发的 access_token 双检刷新时序：进程内双检、flock 跨进程共享、仅重试一次语义。</p>
+  </div>
+</div>
+
+<h2>模块一览</h2>
+<table>
+  <tr><th>模块</th><th>职责</th><th>关键点</th></tr>
+  <tr>
+    <td><code>codes</code></td>
+    <td>A股代码/前缀过滤</td>
+    <td><code>is_a_share_code</code>（沪深北后缀）/ <code>is_a_share_concept</code>（700/881/883/884/885/886 前缀白名单，海外概念返回 False）</td>
+  </tr>
+  <tr>
+    <td><code>tokens</code></td>
+    <td>token 生命周期管理</td>
+    <td><code>TokenStore</code> 进程内双检；<code>FileTokenStore</code> JSON + flock 跨进程持久化，REFRESH_TOKEN 轮换自动落盘</td>
+  </tr>
+  <tr>
+    <td><code>client</code></td>
+    <td>iFinD API 客户端</td>
+    <td>接口 1/2/3/4/5/6 + 实时行情 + smart_pick 智能选股；401 自动刷新后仅重试本轮一次；指数退避重试</td>
+  </tr>
+  <tr>
+    <td><code>storage</code></td>
+    <td>三表存储</td>
+    <td><code>ths_concept_dict</code> / <code>concept_members</code> / <code>stock_concept_map</code>；MAX(date) 快照语义；replace 级联 + 同事务迁移钩子；5 个只读访问器</td>
+  </tr>
+  <tr>
+    <td><code>sync</code></td>
+    <td>同步编排</td>
+    <td>字典初始化、成分股线程池并发（失败不中断）、个股-概念映射、全集补全、观察池刷新</td>
+  </tr>
+  <tr>
+    <td><code>service</code><span class="badge">可选</span></td>
+    <td>FastAPI 服务层</td>
+    <td><code>build_router(hub)</code> 挂载即用：3 个只读端点 + 1 个同步触发端点；<code>pip install "ifind-sector-hub[service]"</code></td>
+  </tr>
+  <tr>
+    <td><code>SectorHub</code></td>
+    <td>门面</td>
+    <td>聚合 client / store / sync，共享同一 token 管理与 SQLite 库文件；<code>HubConfig</code> 数据类集中配置</td>
+  </tr>
+</table>
+
+<h2>快速开始</h2>
+<pre><code>pip install -e /root/Projects/ifind-sector-hub
+# 可选服务层：
+pip install -e "/root/Projects/ifind-sector-hub[service]"
+
+from ifind_sector_hub import SectorHub, HubConfig, FileTokenStore
+
+hub = SectorHub(HubConfig(
+    db_path="data/sector_attribution.db",          # 任意 SQLite 库文件
+    access_token="...", refresh_token="...",       # 首次 bootstrap（或环境变量 IFIND_*）
+    token_store=FileTokenStore("data/token.json"), # 可选：刷新/轮换跨进程落盘
+))
+
+hub.client.smart_pick_stocks("机器人概念板块成分股")   # 数据源（含 smart_pick_boards 枚举板块）
+hub.store.get_concept_members_map(["885001.TI"])    # 三表快照读（不传日期=最新快照）
+hub.sync.sync_concept_members(["885001.TI"], "20260918")  # 并发拉成分股入库</code></pre>
+
+<h2>语义注意事项（沿用 monitor 原语义）</h2>
+<div class="note warn">
+  <b>日期格式跨表不一致：</b>字典/映射表使用 <code>YYYY-MM-DD</code>，成分股表使用 <code>YYYYMMDD</code>。
+  这是从 monitor 原样保留的历史语义，消费方拼接查询时需注意。
+</div>
+<div class="note">
+  <b>永久缓存快照语义：</b>三表读方法不传日期时取 <code>MAX(date)</code> 最新快照，历史数据不清理、不去重。
+</div>
+<div class="note">
+  <b>迁移钩子：</b><code>replace_concept_dict(boards, migrate_hook)</code> 的钩子在<b>同一事务/同一连接</b>内执行，
+  用于迁移消费方自己的关联表（如 monitor 的 watched 勾选），保证原子性。
+</div>
+
+</main>
+
+<footer class="site-footer">
+  <div class="inner">
+    <span>ifind-sector-hub v0.1.0 · 文档由 archify 交互图驱动</span>
+    <span><a href="https://github.com/seuzxh/ifind-sector-hub">GitHub 仓库</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

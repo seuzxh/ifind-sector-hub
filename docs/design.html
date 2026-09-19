@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计方案 · ifind-sector-hub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="inner">
+    <a class="brand" href="index.html"><span class="dot"></span>ifind-sector-hub</a>
+    <nav class="site-nav">
+      <a href="index.html">概览</a>
+      <a href="requirements.html">需求</a>
+      <a class="active" href="design.html">设计方案</a>
+      <a href="architecture.html">架构图</a>
+      <a href="sync-workflow.html">同步流程</a>
+      <a href="token-lifecycle.html">Token 时序</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<h1>设计方案</h1>
+<p class="lead">六个模块各管一段：过滤、凭据、数据源、存储、编排、服务。<code>SectorHub</code> 门面把它们组合起来，共享同一 token 管理与库文件。全景见 <a href="architecture.html">组件架构图</a>。</p>
+
+<h2>1. 总体分层</h2>
+<pre><code>消费方 (monitor 等)
+  ├─ SDK 直用 ──────────► SectorHub ──┬─► IFindClient ──► iFinD API (接口1-6, smart_pick)
+  └─ HTTP (可选 FastAPI) ─┘           │        │ 401
+                                      │        ▼
+                                      │   TokenStore / FileTokenStore ──► token.json (flock)
+                                      │
+                                      ├─► SectorSync（并发编排，复用 client + store）
+                                      └─► SectorStore ──► SQLite 三表（快照语义）</code></pre>
+<p>
+  依赖方向单向：<code>sync → client + store + codes</code>，<code>client → tokens</code>，<code>hub → 全部</code>，<code>service → hub</code>。
+  <code>IFindClient</code> 完全配置注入（base_url / timeout / max_retries / batch_size 构造传入），
+  不再读任何全局配置；headers（含 access_token）由客户端自持，刷新后原地更新。
+</p>
+
+<h2>2. Token 生命周期 <span class="badge violet">详见时序图</span></h2>
+<p>完整交互见 <a href="token-lifecycle.html">access_token 401 刷新时序图</a>。设计要点：</p>
+<h3>2.1 双检锁（Double-Check）</h3>
+<p>
+  <code>refresh_access_token(stale_token)</code> 进入 <code>threading.Lock</code> 后，先重新加载当前 token：
+  若已不等于调用方传入的 stale 值，说明<b>本进程其他线程刚刚刷新过</b>，直接复用、不再打刷新接口。
+  这把"8 个并发线程同时收到 401、连刷 8 次 token"收敛为 1 次接口调用。
+</p>
+<h3>2.2 跨进程共享（FileTokenStore）</h3>
+<p>
+  <code>FileTokenStore</code> 把 token 存为 JSON 文件，写路径加 <code>fcntl</code> 文件锁，
+  在进程锁之外再做一次<b>跨进程双检</b>：锁内发现文件里的 token ≠ 本次 stale 值，说明<b>别的进程刚刷过</b>，采纳文件值。
+  同机多消费方共用一个账号时，刷新结果与 REFRESH_TOKEN 轮换自动共享——取代旧实现正则改写 <code>config_local.py</code> 的做法。
+</p>
+<h3>2.3 仅重试一次</h3>
+<p>
+  <code>IFindClient._post</code> 收到 401 → 刷新 → <b>仅重试本轮一次</b>：刷新后的请求若再 401，走完剩余重试后抛出，
+  防止"token 无效 ↔ 刷新"死循环。REFRESH_TOKEN 轮换由接口返回新值并自动持久化。
+</p>
+
+<h2>3. 客户端重试内核</h2>
+<table>
+  <tr><th>场景</th><th>行为</th></tr>
+  <tr><td>HTTP 401</td><td>经 TokenStore 刷新后重试本轮（仅一次），不算入网络重试次数。</td></tr>
+  <tr><td>网络异常 / 5xx</td><td>指数退避 <code>sleep(2^attempt)</code>，默认重试 3 次后抛出。</td></tr>
+  <tr><td>批量接口</td><td>分片批大小默认 100（接口1 个股概念、接口5 概念信息），逐批请求。</td></tr>
+</table>
+<p>
+  接口覆盖：接口1 个股所属概念、接口2 概念成分股（p03473 data_pool）、接口3 历史日K、接口4 高频 1min K、
+  接口5 概念基本信息、接口6 实时行情快照（含批量），以及 smart_stock_picking 智能选股
+  （<code>smart_pick_boards</code> 枚举指数板块 / <code>smart_pick_stocks</code> 自然语言选股）。
+</p>
+
+<h2>4. 三表存储与快照语义</h2>
+<h3>4.1 数据模型</h3>
+<table>
+  <tr><th>表</th><th>主键</th><th>日期字段</th><th>说明</th></tr>
+  <tr>
+    <td><code>ths_concept_dict</code></td>
+    <td><code>concept_code</code></td>
+    <td><code>update_date</code>（YYYY-MM-DD）</td>
+    <td>概念字典：名称、全称、指数代码、主代码；永久缓存，replace 全量刷新。</td>
+  </tr>
+  <tr>
+    <td><code>concept_members</code></td>
+    <td>(concept_code, stock_code, member_date)</td>
+    <td><code>member_date</code>（YYYYMMDD）</td>
+    <td>概念成分股；索引 <code>idx_cm_concept</code>。</td>
+  </tr>
+  <tr>
+    <td><code>stock_concept_map</code></td>
+    <td>(stock_code, concept_code, map_date)</td>
+    <td><code>map_date</code>（YYYY-MM-DD）</td>
+    <td>个股-概念映射（含权重，默认 1.0）；索引 <code>idx_scm_concept</code>。</td>
+  </tr>
+</table>
+<h3>4.2 MAX(date) 快照语义</h3>
+<p>
+  所有读方法（<code>get_concept_members</code> / <code>get_concept_members_map</code> / <code>get_stock_concepts</code> 等）
+  不传日期时，子查询取 <code>MAX(date)</code> 作为"最新快照"再过滤——同一天多次同步或历史数据并存时，
+  读到的始终是最新一份，且<b>历史不清理</b>（永久缓存语义，自 monitor 原样迁移）。
+  全市场股票池（<code>get_all_member_stock_codes</code> / <code>get_mapped_stock_codes</code>）同样基于最新快照去重。
+</p>
+<h3>4.3 幂等写入</h3>
+<p>三表写入统一 <code>INSERT OR REPLACE</code>，以主键天然幂等——同日重跑同步管线不产生重复行。</p>
+
+<h2>5. replace 级联与同事务迁移钩子</h2>
+<p>
+  概念字典是"全量 replace"：当上游板块列表变化（概念下线/更名）时，<code>replace_concept_dict(boards, migrate_hook)</code> 在<b>单个事务</b>内完成：
+</p>
+<ol>
+  <li>删除新字典中已不存在的概念码（级联清理成分股与映射表中该概念的行）；</li>
+  <li>更名概念同步更新名称；</li>
+  <li>在<b>同一连接、同一事务</b>内调用 <code>migrate_hook(conn, ...)</code>——消费方借此迁移自己的关联表（如 monitor 的 watched 勾选从旧码迁到新码、清理失效勾选），要么全成要么全不成；</li>
+  <li>返回统计（迁移明细、被丢弃的 watched 列表）。</li>
+</ol>
+
+<h2>6. 同步编排 <span class="badge violet">详见流程图</span></h2>
+<p>完整管线见 <a href="sync-workflow.html">板块数据同步编排流程图</a>。核心决策：</p>
+<ul>
+  <li><b>并发内核</b>：<code>ThreadPoolExecutor</code>（默认 8 并发）逐概念拉接口2；<b>单概念失败只记 WARN 不中断</b>，失败码在末尾汇总打印；进度计数器加锁，每 100 个概念输出一次进度。</li>
+  <li><b>A股过滤前置</b>：字典初始化先过滤海外概念（861/864/865/871/875 前缀）；成分股入库可选 <code>stock_filter</code>（默认用 <code>is_a_share_code</code> 过滤非沪深北代码）。</li>
+  <li><b>全集补全回路</b>：<code>init_concept_universe</code> 从成分股表最新快照反查全市场股票池 → 接口1 逐批扫描每只股票的概念 → 反向收集字典未覆盖的新概念码 → 接口5 补字典、接口2 补成分股。支持 <code>skip</code> 开关（原"板块池启用仅 884"语义）与调用方口径的 <code>existing_codes</code>。</li>
+  <li><b>观察池刷新</b>：<code>refresh_dict_and_members</code> 对给定码集"接口5 刷字典 + 接口2 并发刷成分股"一步完成。</li>
+</ul>
+
+<h2>7. 可选 FastAPI 服务层</h2>
+<pre><code>pip install "ifind-sector-hub[service]"
+
+from ifind_sector_hub.service import build_router
+app.include_router(build_router(hub))   # 挂到任一 FastAPI 应用</code></pre>
+<table>
+  <tr><th>端点</th><th>方法</th><th>语义</th></tr>
+  <tr><td><code>/concepts</code></td><td>GET</td><td>概念字典全量（code → name）。</td></tr>
+  <tr><td><code>/concepts/{concept_code}/members</code></td><td>GET</td><td>概念成分股，可选 <code>?date=</code>（缺省最新快照）。</td></tr>
+  <tr><td><code>/stocks/{stock_code}/concepts</code></td><td>GET</td><td>个股所属概念反查，可选 <code>?date=</code>。</td></tr>
+  <tr><td><code>/sync/members</code></td><td>POST</td><td>触发成分股同步（概念码列表 + 日期），返回入库条数。</td></tr>
+</table>
+<p>本期<b>只交付不部署</b>；未安装 fastapi 时 import 该模块报 ImportError，不影响库核心。</p>
+
+<h2>8. 兼容性决策记录</h2>
+<table>
+  <tr><th>决策</th><th>理由</th></tr>
+  <tr>
+    <td>保留三表日期格式不一致（YYYY-MM-DD vs YYYYMMDD）</td>
+    <td>monitor 历史数据与查询口径依赖原格式；统一格式的迁移成本与风险大于收益。消费方按表注意即可。</td>
+  </tr>
+  <tr>
+    <td>三表 DDL 原样保留（含索引）</td>
+    <td>monitor 直接把 <code>SectorStore</code> 指向既有 <code>sector_attribution.db</code>，零数据迁移。</td>
+  </tr>
+  <tr>
+    <td>同步日志前缀（[INIT] / [UNIVERSE] / [REFRESH] / [WARN]）原样迁移</td>
+    <td>运维侧已有基于这些前缀的检索习惯。</td>
+  </tr>
+  <tr>
+    <td>token 环境变量兜底（IFIND_ACCESS_TOKEN / IFIND_REFRESH_TOKEN）</td>
+    <td>首次 bootstrap 无需改代码；接入 FileTokenStore 后以文件为准。</td>
+  </tr>
+</table>
+
+<h2>9. 测试策略</h2>
+<ul>
+  <li>33 个测试 · <code>python -m unittest discover -s tests</code> · 全部通过。</li>
+  <li>按模块分层：<code>test_codes</code>（过滤白名单）、<code>test_tokens</code>（双检命中/轮换落盘/跨进程锁）、
+    <code>test_client</code>（401 刷新重试一次、退避、分片）、<code>test_storage</code>（快照读、幂等、replace 级联与钩子事务性、访问器）、
+    <code>test_sync</code>（并发内核失败不中断、全集补全、观察池刷新）、<code>test_service</code>（4 端点）。</li>
+  <li>外部 HTTP 用桩替换，全部测试离线可跑（标准库 unittest，无第三方测试依赖）。</li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+  <div class="inner">
+    <span>ifind-sector-hub v0.1.0 · 设计方案</span>
+    <span><a href="https://github.com/seuzxh/ifind-sector-hub">GitHub 仓库</a></span>
+  </div>
+</footer>
+
+</body>
+</html>
