@@ -33,8 +33,24 @@
   <div class="stat"><div class="num">7</div><div class="lbl">模块（含门面）</div></div>
   <div class="stat"><div class="num">33</div><div class="lbl">单元测试 · 全部通过</div></div>
   <div class="stat"><div class="num">1</div><div class="lbl">核心依赖（requests）</div></div>
-  <div class="stat"><div class="num">3</div><div class="lbl">交互式架构图</div></div>
+  <div class="stat"><div class="num">4</div><div class="lbl">交互式图（架构/数据模型/流程/时序）</div></div>
 </div>
+
+<h2>这个组件做什么</h2>
+<p>
+  一句话：<b>输入一个 iFinD 账号，产出一个可直接查询的"板块 × 概念 × 个股"SQLite 快照库</b>，
+  并把取数、落库、日更新整条链路的复杂度从业务代码里收走。具体承担四件事：
+</p>
+<ul>
+  <li><b>取数</b>——封装 8 个 iFinD HTTP 端点（个股概念 / 成分股 / 行情 / 概念信息 / 智能选股），自带 token 生命周期管理（401 双检刷新、flock 跨进程共享、轮换落盘）、指数退避重试与批量分片；消费方不碰 HTTP 细节。</li>
+  <li><b>落库</b>——三张表（概念字典 / 概念成分股 / 个股-概念映射）的建表、幂等写入与 <code>MAX(date)</code> 最新快照读取；一次接入，所有消费方共享同一份口径。</li>
+  <li><b>日更</b>——同步编排管线：字典初始化 → 成分股 8 线程并发拉取（失败不中断）→ 个股映射 → 全市场扫描补全新概念 → 观察池刷新。</li>
+  <li><b>供数</b>——Python SDK（<code>SectorHub</code> 门面）进程内直用，或挂一个可选 FastAPI 路由对非 Python 消费方供数。</li>
+</ul>
+<p>
+  适合谁用：任何需要"这只股票属于哪些概念 / 这个概念有哪些成分股 / 现在市场上有哪些板块"的下游——
+  板块归因监控（monitor 即首个消费方）、实时行情引擎、知识图谱数据源、主题催化分析等。
+</p>
 
 <h2>文档导航</h2>
 <div class="grid">
