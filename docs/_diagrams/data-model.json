@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "三表数据模型",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/seuzxh/ifind-sector-hub",
+      "revision": "cd65b19523d8a8c2c0765c603c80977ba776b791"
+    },
+    "views": [
+      {
+        "id": "logical-fk",
+        "label": "逻辑外键与级联",
+        "focus": [
+          "dict",
+          "members",
+          "map"
+        ],
+        "note": "两表经 concept_code 逻辑关联字典；replace 删除概念时级联清理。"
+      },
+      {
+        "id": "join-read",
+        "label": "联表读路径",
+        "focus": [
+          "map",
+          "dict"
+        ],
+        "note": "get_stock_concepts 联表字典，直接返回名称与权重。"
+      },
+      {
+        "id": "pool-derivation",
+        "label": "股票池派生",
+        "focus": [
+          "members",
+          "map"
+        ],
+        "note": "全集补全从成分股最新快照反查股票池，扫描接口1 后写映射。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "dict",
+      "type": "database",
+      "label": "ths_concept_dict",
+      "sublabel": "PK concept_code",
+      "tag": "字典表 · update_date=YYYY-MM-DD",
+      "pos": [
+        70,
+        210
+      ],
+      "size": [
+        200,
+        100
+      ],
+      "sources": [
+        {
+          "path": "ifind_sector_hub/storage.py",
+          "line": 18,
+          "label": "CREATE TABLE"
+        }
+      ]
+    },
+    {
+      "id": "members",
+      "type": "database",
+      "label": "concept_members",
+      "sublabel": "PK (concept_code, stock_code, member_date)",
+      "tag": "成分股表 · member_date=YYYYMMDD · idx_cm_concept",
+      "pos": [
+        450,
+        70
+      ],
+      "size": [
+        230,
+        100
+      ],
+      "sources": [
+        {
+          "path": "ifind_sector_hub/storage.py",
+          "line": 37,
+          "label": "CREATE TABLE"
+        }
+      ]
+    },
+    {
+      "id": "map",
+      "type": "database",
+      "label": "stock_concept_map",
+      "sublabel": "PK (stock_code, concept_code, map_date)",
+      "tag": "映射表 · weight=1/N · idx_scm_concept",
+      "pos": [
+        500,
+        360
+      ],
+      "size": [
+        230,
+        100
+      ],
+      "sources": [
+        {
+          "path": "ifind_sector_hub/storage.py",
+          "line": 28,
+          "label": "CREATE TABLE"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "SQLite sector_attribution.db（busy_timeout=5000 · synchronous=NORMAL）",
+      "wraps": [
+        "dict",
+        "members",
+        "map"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "fk-members",
+      "from": "dict",
+      "to": "members",
+      "label": "concept_code 逻辑外键",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "fk-map",
+      "from": "dict",
+      "to": "map",
+      "label": "concept_code 外键 · 读时 JOIN 取名",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "pool-derivation",
+      "from": "members",
+      "to": "map",
+      "label": "股票池反查（universe）",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        565,
+        184
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "主键与日期",
+      "items": [
+        "三表均以业务键复合主键，INSERT OR REPLACE 天然幂等",
+        "字典/映射表日期 YYYY-MM-DD，成分股表 YYYYMMDD（沿用 monitor 原语义）",
+        "历史不清理：每次同步追加新日期快照"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "快照读",
+      "items": [
+        "不传日期取 MAX(date) 最新快照再过滤",
+        "get_concept_members_map 单连接批量读多概念成分",
+        "get_stock_concepts 联表字典，返回 code+name+weight"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "级联与钩子",
+      "items": [
+        "replace_concept_dict 删除下线概念时级联清理两表关联行",
+        "migrate_hook 在同一事务/同一连接内迁移消费方关联表",
+        "更名概念同步更新字典名称"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "派生关系",
+      "items": [
+        "get_all_member_stock_codes 从成分股最新快照反查全市场股票池",
+        "init_concept_universe 用股票池逐批扫接口1，反向发现新概念码后写映射",
+        "两表索引 idx_cm_concept / idx_scm_concept 支撑按概念码查询"
+      ]
+    }
+  ]
+}

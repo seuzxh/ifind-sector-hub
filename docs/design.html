@@ -16,6 +16,7 @@
       <a href="requirements.html">需求</a>
       <a class="active" href="design.html">设计方案</a>
       <a href="architecture.html">架构图</a>
+      <a href="data-model.html">数据模型</a>
       <a href="sync-workflow.html">同步流程</a>
       <a href="token-lifecycle.html">Token 时序</a>
     </nav>
@@ -145,8 +146,9 @@
   实测 2026-09 共 <b>710 个板块动态可枚举</b>（概念 390 / 二级 90 / 三级 230），替代硬编码 SECTOR_POOL_CODES。
 </p>
 
-<h2>4. 三表存储与快照语义</h2>
+<h2>4. 三表存储与快照语义 <span class="badge violet">配数据模型图</span></h2>
 <h3>4.1 数据模型</h3>
+<p>三表结构与相互依赖（主键、<code>concept_code</code> 逻辑外键、读时 JOIN、级联清理、股票池派生）的可视化见 <a href="data-model.html">三表数据模型图</a>，表结构如下：</p>
 <table>
   <tr><th>表</th><th>主键</th><th>日期字段</th><th>说明</th></tr>
   <tr>
