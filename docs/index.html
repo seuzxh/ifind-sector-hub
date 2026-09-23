@@ -90,7 +90,7 @@
   <tr>
     <td><code>service</code><span class="badge">可选</span></td>
     <td>FastAPI 服务层</td>
-    <td><code>build_router(hub)</code> 挂载即用：3 个只读端点 + 1 个同步触发端点；<code>pip install "ifind-sector-hub[service]"</code></td>
+    <td><code>build_router(hub)</code> 挂载即用：3 个只读端点 + 1 个同步触发端点；面向非 Python / 跨机消费方，凭据集中在服务端（与 SDK 的差异与选型见设计方案 §8）；<code>pip install "ifind-sector-hub[service]"</code></td>
   </tr>
   <tr>
     <td><code>SectorHub</code></td>

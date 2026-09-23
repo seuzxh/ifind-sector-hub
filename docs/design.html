@@ -87,6 +87,64 @@
   其余（含 token 刷新 <code>get_access_token</code>）走 <code>quantapi.51ifind.com</code>——两者共用同一套 token 与重试内核。
 </p>
 
+<h3>3.2 封装的 iFinD HTTP 端点一览</h3>
+<p>上表是<b>封装方法</b>视角；下表对齐到<b>上游真实 HTTP 端点</b>（全部 POST + JSON，认证头 <code>access_token</code>，401 触发 §2 的刷新链路）：</p>
+<table>
+  <tr><th>能力</th><th>iFinD 端点</th><th>关键请求参数</th><th>封装方法与解析行为</th></tr>
+  <tr>
+    <td>token 刷新</td>
+    <td><code>quantapi /api/v1/get_access_token</code></td>
+    <td><code>refresh_token</code></td>
+    <td><code>tokens._fetch_access_token</code>（模块级函数，返回含轮换后 refresh_token 的 data）</td>
+  </tr>
+  <tr>
+    <td>接口1 · 个股概念</td>
+    <td><code>quantapi /api/v1/basic_data_service</code></td>
+    <td><code>codes</code>（逗号分隔）；<code>indipara</code>：ths_the_ths_concept_index_stock / ths_the_ths_concept_index_code_stock，<code>indiparams=[date]</code></td>
+    <td><code>get_stock_concepts</code>（原始响应）；<code>batch_get_stock_concepts</code> 分片 + 解析<b>逗号分隔串</b> → <code>{stock: [{concept_name, concept_code}]}</code></td>
+  </tr>
+  <tr>
+    <td>接口2 · 成分股</td>
+    <td><code>quantapi /api/v1/data_pool</code></td>
+    <td><code>reportname=p03473</code>；<code>functionpara</code>：iv_date / iv_zsdm；<code>outputpara</code>：p03473_f001/f002/f003</td>
+    <td><code>get_concept_members</code>（原始响应；f002=股票代码、f003=名称由 sync 层取用）</td>
+  </tr>
+  <tr>
+    <td>接口3 · 历史日K</td>
+    <td><code>ft.10jqka /api/v1/cmd_history_quotation</code></td>
+    <td><code>codes / indicators / startdate / enddate</code>；<code>functionpara</code>：Fill=Previous、Interval=D/W/M、CPS=6（前复权）</td>
+    <td><code>get_history_quotation</code>（原始响应）</td>
+  </tr>
+  <tr>
+    <td>接口4 · 高频 1min</td>
+    <td><code>ft.10jqka /api/v1/high_frequency</code></td>
+    <td><code>codes / indicators / starttime / endtime</code></td>
+    <td><code>get_high_frequency</code>（原始响应）</td>
+  </tr>
+  <tr>
+    <td>接口5 · 概念信息</td>
+    <td><code>quantapi /api/v1/basic_data_service</code></td>
+    <td><code>codes</code>；<code>indipara</code>：ths_index_short_name / full_name / index_code / main_sec_code / thscode_index 五指标</td>
+    <td><code>get_concept_basic_info</code>（原始）；<code>batch_get_concept_basic_info</code> 分片 + 解析 → 字典字段（short_name/full_name/index_code/main_code/thscode）</td>
+  </tr>
+  <tr>
+    <td>接口6 · 实时行情</td>
+    <td><code>quantapi /api/v1/real_time_quotation</code></td>
+    <td><code>codes / indicators</code>（每股一个 table，指标为单值数组）</td>
+    <td><code>get_realtime_quotation</code>（原始）；<code>batch_get_realtime_quotation</code> 分片 + 解析 → <code>{code: {indicator: value}}</code></td>
+  </tr>
+  <tr>
+    <td>智能选股</td>
+    <td><code>quantapi /api/v1/smart_stock_picking</code></td>
+    <td><code>searchstring</code>（自然语言/固定句式）；<code>searchtype=index|stock</code></td>
+    <td><code>smart_pick_boards</code> / <code>smart_pick_stocks</code>（解析中文列名"指数代码/指数简称/涨跌幅"）；<code>get_all_ths_boards</code> 用固定句式按 concept / industry_l2 / industry_l3 三级去重枚举，<code>search_board_by_name</code> 取首个命中</td>
+  </tr>
+</table>
+<p>
+  板块全集枚举的固定句式（<code>BOARD_CATEGORY_QUERIES</code>）："同花顺概念指数"（885xxx）、"同花顺二级行业指数"（881xxx）、"同花顺三级行业指数"（884xxx）；
+  实测 2026-09 共 <b>710 个板块动态可枚举</b>（概念 390 / 二级 90 / 三级 230），替代硬编码 SECTOR_POOL_CODES。
+</p>
+
 <h2>4. 三表存储与快照语义</h2>
 <h3>4.1 数据模型</h3>
 <table>
@@ -208,6 +266,29 @@
 <p>外部 HTTP 全部以桩替换，测试离线可跑（标准库 <code>unittest</code>，无第三方测试依赖）：<code>python -m unittest discover -s tests</code>。</p>
 
 <h2>8. 可选 FastAPI 服务层</h2>
+
+<h3>8.1 SectorHub（SDK）与 HTTP 服务层的差异</h3>
+<p>两条使用路径面向不同消费方，<b>不是替代关系</b>——HTTP 层只是 hub 门面之上的薄适配：</p>
+<table>
+  <tr><th>维度</th><th>SectorHub SDK（进程内）</th><th>FastAPI 服务层（跨进程）</th></tr>
+  <tr><td>调用方式</td><td>Python <code>import</code>，直接对象调用</td><td>HTTP REST（3 个 GET + 1 个 POST）</td></tr>
+  <tr><td>消费方形态</td><td>仅 Python、通常同机</td><td>任意语言 / 跨机器：web 前端、其他后端服务、脚本</td></tr>
+  <tr><td>token 与库的归属</td><td>每个消费方自持 <code>IFIND_*</code> 凭据与 db 文件路径</td><td><b>服务端集中持有</b> token 与 SQLite，消费方零凭据、无需安装本包</td></tr>
+  <tr><td>能力面</td><td>全量：client / store / sync 所有方法（含行情、smart_pick、replace 钩子）</td><td>收敛为只读三端点 + 一个同步触发；<b>无行情、无 smart_pick、无字典 replace</b></td></tr>
+  <tr><td>时延</td><td>无网络跳变，函数级调用</td><td>多一跳 HTTP 与序列化</td></tr>
+  <tr><td>部署成本</td><td><code>pip install</code> 即用</td><td>需要部署并维护一个常驻进程（含鉴权/网络策略）</td></tr>
+</table>
+
+<h3>8.2 为什么是"可选"的 FastAPI</h3>
+<ul>
+  <li><b>多平台复用是抽离初衷</b>：monitor 这类同进程 Python 消费用 SDK 就够；但非 Python 消费方（前端、其他服务）只能走 HTTP——两条路径都要有。</li>
+  <li><b>凭据集中化</b>：部署为服务后，iFinD 账号与 SQLite 只在服务端，消费方不接触凭据，也不必各自实现 token 刷新/并发同步。</li>
+  <li><b>最小暴露面</b>：HTTP 只开放"读快照 + 触发同步"，把写路径限制在受控的 <code>POST /sync/members</code>，不把整套 SDK 语义搬到网络边界。</li>
+  <li><b>不破坏核心依赖约束</b>：fastapi / pydantic 放在 <code>[service]</code> extra 里，SDK 用户的核心依赖仍然只有 <code>requests</code>；未安装时 <code>import service</code> 报 ImportError，不影响库核心。</li>
+  <li><b>实现是 44 行薄适配</b>：<code>build_router(hub)</code> 只做参数搬运与响应包装，零业务逻辑——门面模式保证 SDK 与 HTTP 行为一致。</li>
+</ul>
+
+<h3>8.3 用法与端点语义</h3>
 <pre><code>pip install "ifind-sector-hub[service]"
 
 from ifind_sector_hub.service import build_router
