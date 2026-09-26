@@ -325,6 +325,26 @@ app.include_router(build_router(hub))   # 挂到任一 FastAPI 应用</code></pr
   </tr>
 </table>
 
+<h2>10. 简化机会清单（ponytail-audit · 2026-09-27）</h2>
+<p>
+  全仓过度设计审计结论，<b>未实施</b>，供决策。排序按可削减量降序；其中 #1/#2/#10 与既有文档化决策
+  （FR-7 服务层、接口全集迁移、print 日志兼容口径）存在张力，属"复审项"而非缺陷——需结合 monitor 实际用量裁决。
+</p>
+<table>
+  <tr><th>#</th><th>标签</th><th>可削减项</th><th>替代方案</th><th>位置</th></tr>
+  <tr><td>1</td><td><code>yagni</code></td><td>FastAPI 服务层零部署零消费方（连同 fastapi/pydantic extra 与 3 个测试，约 100 行）</td><td>出现首个非 Python 消费方时再交付</td><td><code>api/service.py</code></td></tr>
+  <tr><td>2</td><td><code>yagni</code></td><td>接口3/4 纯透传封装，仓内零调用零测试（约 65 行）</td><td>确认 monitor 用量，不用即删</td><td><code>integrations/ifind/client.py</code></td></tr>
+  <tr><td>3</td><td><code>yagni</code></td><td><code>search_board_by_name</code> 零调用；<code>get_all_ths_boards</code> 仅测试调用</td><td>消费方基于 <code>smart_pick_boards</code> 自取</td><td><code>client.py</code></td></tr>
+  <tr><td>4</td><td><code>delete</code></td><td><code>counter_lock</code> 只保护主线程的 <code>as_completed</code> 循环</td><td>直接计数</td><td><code>services/sync.py:58</code></td></tr>
+  <tr><td>5</td><td><code>shrink</code></td><td><code>get_concept_basic_info</code> 单数版仅被 batch 内部调用</td><td>私有化并入 batch</td><td><code>client.py:215</code></td></tr>
+  <tr><td>6</td><td><code>shrink</code></td><td>两处手写 <code>LIKE '%.SH/%.SZ/%.BJ'</code> 字面量</td><td>由 <code>A_SHARE_SUFFIXES</code> 生成</td><td><code>repositories/storage.py:161,174</code></td></tr>
+  <tr><td>7</td><td><code>shrink</code></td><td>独立 <code>.lock</code> 文件</td><td>flock 数据文件本身</td><td><code>core/tokens.py:110</code></td></tr>
+  <tr><td>8</td><td><code>shrink</code></td><td>测试三处重复 stub 工厂</td><td><code>tests/common.py</code> 单份</td><td><code>tests/</code></td></tr>
+  <tr><td>9</td><td><code>yagni</code></td><td><code>members_progress_every</code> 配置无人设置</td><td>常量 100</td><td><code>__init__.py:43</code></td></tr>
+  <tr><td>10</td><td><code>native</code></td><td><code>print</code> 日志（复审项：决策记录已接受为 monitor 运维兼容口径）</td><td><code>logging</code> + 前缀格式化</td><td><code>sync / tokens</code></td></tr>
+</table>
+<p>合计：约 <b>-210 行、-2 依赖、-1 运行时产物</b>。core 双检/flock、三表快照语义、import-linter 契约不在削减范围——其复杂度均有真实约束背书。</p>
+
 </main>
 
 <footer class="site-footer">
