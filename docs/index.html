@@ -84,32 +84,32 @@
 <table>
   <tr><th>模块</th><th>职责</th><th>关键点</th></tr>
   <tr>
-    <td><code>codes</code></td>
+    <td><code>core.codes</code></td>
     <td>A股代码/前缀过滤</td>
     <td><code>is_a_share_code</code>（沪深北后缀）/ <code>is_a_share_concept</code>（700/881/883/884/885/886 前缀白名单，海外概念返回 False）</td>
   </tr>
   <tr>
-    <td><code>tokens</code></td>
+    <td><code>core.tokens</code></td>
     <td>token 生命周期管理</td>
     <td><code>TokenStore</code> 进程内双检；<code>FileTokenStore</code> JSON + flock 跨进程持久化，REFRESH_TOKEN 轮换自动落盘</td>
   </tr>
   <tr>
-    <td><code>client</code></td>
+    <td><code>integrations.ifind.client</code></td>
     <td>iFinD API 客户端</td>
     <td>接口 1-6 + 实时行情 + smart_pick 智能选股；<code>get_all_ths_boards</code> 动态枚举板块全集（concept / industry_l2 / l3）、<code>search_board_by_name</code> 按名搜板块；接口3/4 走 <code>ft.10jqka</code> 网关、其余走 <code>quantapi</code>；401 自动刷新后仅重试本轮一次</td>
   </tr>
   <tr>
-    <td><code>storage</code></td>
+    <td><code>repositories.storage</code></td>
     <td>三表存储</td>
     <td><code>ths_concept_dict</code> / <code>concept_members</code> / <code>stock_concept_map</code>；MAX(date) 快照语义；replace 级联 + 同事务迁移钩子；<code>get_concept_members_map</code> 批量读 + 5 个只读访问器（monitor 裸 SQL 统一入口）</td>
   </tr>
   <tr>
-    <td><code>sync</code></td>
+    <td><code>services.sync</code></td>
     <td>同步编排</td>
     <td>字典初始化、成分股线程池并发（失败不中断）、个股-概念映射、全集补全、观察池刷新</td>
   </tr>
   <tr>
-    <td><code>service</code><span class="badge">可选</span></td>
+    <td><code>api.service</code><span class="badge">可选</span></td>
     <td>FastAPI 服务层</td>
     <td><code>build_router(hub)</code> 挂载即用：3 个只读端点 + 1 个同步触发端点；面向非 Python / 跨机消费方，凭据集中在服务端（与 SDK 的差异与选型见设计方案 §8）；<code>pip install "ifind-sector-hub[service]"</code></td>
   </tr>

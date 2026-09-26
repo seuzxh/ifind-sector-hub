@@ -74,14 +74,14 @@
 <h3>3.1 接口清单（双网关拆分）</h3>
 <table>
   <tr><th>能力</th><th>方法</th><th>网关</th><th>返回形态</th></tr>
-  <tr><td>接口1 · 个股所属概念</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L56"><code>get_stock_concepts</code></a> / <a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L343"><code>batch_get_stock_concepts</code></a></td><td><code>quantapi</code></td><td>API 原始响应；batch 版自动分片并聚合</td></tr>
-  <tr><td>接口2 · 概念成分股</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L81"><code>get_concept_members</code></a></td><td><code>quantapi</code>（data_pool · p03473）</td><td>API 原始响应</td></tr>
-  <tr><td>接口3 · 历史日K</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L100"><code>get_history_quotation</code></a></td><td><code>ft.10jqka</code>（cmd_history_quotation）</td><td>API 原始响应（支持周期/前复权参数）</td></tr>
-  <tr><td>接口4 · 高频 1min K</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L135"><code>get_high_frequency</code></a></td><td><code>ft.10jqka</code>（high_frequency）</td><td>API 原始响应</td></tr>
-  <tr><td>接口5 · 概念基本信息</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L215"><code>get_concept_basic_info</code></a> / <a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L387"><code>batch_get_concept_basic_info</code></a></td><td><code>quantapi</code></td><td>API 原始响应；batch 版自动分片</td></tr>
-  <tr><td>接口6 · 实时行情快照</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L162"><code>get_realtime_quotation</code></a> / <a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L185"><code>batch_get_realtime_quotation</code></a></td><td><code>quantapi</code>（real_time_quotation）</td><td>raw 原始响应；<b>batch 版返回解析后的 <code>{code: {indicator: value}}</code></b>（全库唯一解析型返回）</td></tr>
-  <tr><td>smart_pick · 枚举板块</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L246"><code>smart_pick_boards</code></a> / <a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L283"><code>get_all_ths_boards</code></a> / <a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L305"><code>search_board_by_name</code></a></td><td><code>quantapi</code>（smart_stock_picking）</td><td>结构化板块列表；<code>get_all_ths_boards</code> 按 concept / industry_l2 / industry_l3 三级去重枚举<b>板块全集</b>（替代硬编码 SECTOR_POOL_CODES）</td></tr>
-  <tr><td>smart_pick · 查个股</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L310"><code>smart_pick_stocks</code></a></td><td><code>quantapi</code></td><td>结构化个股列表（自然语言句式，如"机器人概念板块成分股"）</td></tr>
+  <tr><td>接口1 · 个股所属概念</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/integrations/ifind/client.py#L56"><code>get_stock_concepts</code></a> / <a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/integrations/ifind/client.py#L343"><code>batch_get_stock_concepts</code></a></td><td><code>quantapi</code></td><td>API 原始响应；batch 版自动分片并聚合</td></tr>
+  <tr><td>接口2 · 概念成分股</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/integrations/ifind/client.py#L81"><code>get_concept_members</code></a></td><td><code>quantapi</code>（data_pool · p03473）</td><td>API 原始响应</td></tr>
+  <tr><td>接口3 · 历史日K</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/integrations/ifind/client.py#L100"><code>get_history_quotation</code></a></td><td><code>ft.10jqka</code>（cmd_history_quotation）</td><td>API 原始响应（支持周期/前复权参数）</td></tr>
+  <tr><td>接口4 · 高频 1min K</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/integrations/ifind/client.py#L135"><code>get_high_frequency</code></a></td><td><code>ft.10jqka</code>（high_frequency）</td><td>API 原始响应</td></tr>
+  <tr><td>接口5 · 概念基本信息</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/integrations/ifind/client.py#L215"><code>get_concept_basic_info</code></a> / <a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/integrations/ifind/client.py#L387"><code>batch_get_concept_basic_info</code></a></td><td><code>quantapi</code></td><td>API 原始响应；batch 版自动分片</td></tr>
+  <tr><td>接口6 · 实时行情快照</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/integrations/ifind/client.py#L162"><code>get_realtime_quotation</code></a> / <a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/integrations/ifind/client.py#L185"><code>batch_get_realtime_quotation</code></a></td><td><code>quantapi</code>（real_time_quotation）</td><td>raw 原始响应；<b>batch 版返回解析后的 <code>{code: {indicator: value}}</code></b>（全库唯一解析型返回）</td></tr>
+  <tr><td>smart_pick · 枚举板块</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/integrations/ifind/client.py#L246"><code>smart_pick_boards</code></a> / <a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/integrations/ifind/client.py#L283"><code>get_all_ths_boards</code></a> / <a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/integrations/ifind/client.py#L305"><code>search_board_by_name</code></a></td><td><code>quantapi</code>（smart_stock_picking）</td><td>结构化板块列表；<code>get_all_ths_boards</code> 按 concept / industry_l2 / industry_l3 三级去重枚举<b>板块全集</b>（替代硬编码 SECTOR_POOL_CODES）</td></tr>
+  <tr><td>smart_pick · 查个股</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/integrations/ifind/client.py#L310"><code>smart_pick_stocks</code></a></td><td><code>quantapi</code></td><td>结构化个股列表（自然语言句式，如"机器人概念板块成分股"）</td></tr>
 </table>
 <p>
   注意流量在<b>两个网关</b>间拆分：接口3/4（历史与高频行情）走 <code>ft.10jqka.com.cn</code>，
@@ -212,27 +212,27 @@
 </ul>
 
 <h2>7. 模块调用关联（CodeGraph 实测）</h2>
-<p>以下依赖方向、热点方法调用方统计与测试覆盖，均来自 CodeGraph 对当前代码的实测关联分析。</p>
+<p>以下依赖方向、热点方法调用方统计与测试覆盖，均来自 CodeGraph 对当前代码的实测关联分析。0.2.0 起包为 src 布局分层子包，分层契约由 <code>.importlinter</code> 强制（<code>lint-imports</code> 校验：api → services → repositories/integrations → core）。</p>
 
 <h3>7.1 依赖方向（单向无环）</h3>
 <table>
   <tr><th>模块</th><th>依赖</th></tr>
-  <tr><td><code>service</code></td><td><code>hub</code>（<code>build_router</code> 持有门面，间接触达全部）</td></tr>
-  <tr><td><code>SectorHub</code></td><td><code>client</code> / <code>storage</code> / <code>sync</code> / <code>tokens.resolve_tokens</code></td></tr>
-  <tr><td><code>sync</code></td><td><code>client</code>（4 个接口方法）、<code>storage</code>（4 写 + 2 读）、<code>codes</code>（2 个过滤函数）</td></tr>
-  <tr><td><code>client</code></td><td><code>tokens</code>（唯一触点：<code>_post</code> 401 分支 → <code>refresh_access_token</code>）</td></tr>
-  <tr><td><code>storage</code> / <code>codes</code></td><td>无包内依赖（叶子模块，仅标准库）</td></tr>
+  <tr><td><code>api.service</code></td><td><code>hub</code>（<code>build_router</code> 持有门面，间接触达全部；自身零包内导入）</td></tr>
+  <tr><td><code>SectorHub</code>（门面）</td><td><code>integrations.ifind.client</code> / <code>repositories.storage</code> / <code>services.sync</code> / <code>core.tokens.resolve_tokens</code></td></tr>
+  <tr><td><code>services.sync</code></td><td><code>integrations.ifind.client</code>（4 个接口方法）、<code>repositories.storage</code>（4 写 + 2 读）、<code>core.codes</code>（2 个过滤函数）</td></tr>
+  <tr><td><code>integrations.ifind.client</code></td><td><code>core.tokens</code>（唯一触点：<code>_post</code> 401 分支 → <code>refresh_access_token</code>）</td></tr>
+  <tr><td><code>repositories.storage</code> / <code>core.*</code></td><td>无包内依赖（叶子层，仅标准库）</td></tr>
 </table>
 
 <h3>7.2 热点方法（blast radius）</h3>
 <table>
   <tr><th>方法</th><th>定义</th><th>主要调用方（实测）</th><th>测试</th></tr>
-  <tr><td><code>client.get_concept_members</code></td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L81">client.py:81</a></td><td><code>sync._fetch_one_concept_members</code>（线程池 worker）等 6 处；store 同名方法是 service 读端点的另一入口（注意两类同名不同主）</td><td>test_sync / test_storage</td></tr>
-  <tr><td><code>client.batch_get_stock_concepts</code></td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/client.py#L343">client.py:343</a></td><td>sync 内 4 处：个股映射同步、全集补全的逐批扫描</td><td>test_client</td></tr>
-  <tr><td><code>SectorStore</code>（类）</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/storage.py#L48">storage.py:48</a></td><td><code>__init__.py</code> 门面聚合 7 处引用</td><td>test_storage + test_sync</td></tr>
-  <tr><td><code>store.get_all_member_stock_codes</code></td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/storage.py#L152">storage.py:152</a></td><td><code>sync.init_concept_universe</code> 等 2 处（全市场股票池唯一入口）</td><td>test_storage</td></tr>
-  <tr><td><code>store.get_concept_names</code></td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/storage.py#L296">storage.py:296</a></td><td><code>service</code> 的 <code>GET /concepts</code></td><td>test_storage</td></tr>
-  <tr><td><code>codes.is_a_share_code</code></td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/ifind_sector_hub/codes.py#L11">codes.py:11</a></td><td>6 处：sync 成分股默认过滤、<code>__init__</code> 导出</td><td>test_codes</td></tr>
+  <tr><td><code>client.get_concept_members</code></td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/integrations/ifind/client.py#L81">client.py:81</a></td><td><code>sync._fetch_one_concept_members</code>（线程池 worker）等 6 处；store 同名方法是 service 读端点的另一入口（注意两类同名不同主）</td><td>test_sync / test_storage</td></tr>
+  <tr><td><code>client.batch_get_stock_concepts</code></td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/integrations/ifind/client.py#L343">client.py:343</a></td><td>sync 内 4 处：个股映射同步、全集补全的逐批扫描</td><td>test_client</td></tr>
+  <tr><td><code>SectorStore</code>（类）</td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/repositories/storage.py#L48">storage.py:48</a></td><td><code>__init__.py</code> 门面聚合 7 处引用</td><td>test_storage + test_sync</td></tr>
+  <tr><td><code>store.get_all_member_stock_codes</code></td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/repositories/storage.py#L152">storage.py:152</a></td><td><code>sync.init_concept_universe</code> 等 2 处（全市场股票池唯一入口）</td><td>test_storage</td></tr>
+  <tr><td><code>store.get_concept_names</code></td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/repositories/storage.py#L296">storage.py:296</a></td><td><code>service</code> 的 <code>GET /concepts</code></td><td>test_storage</td></tr>
+  <tr><td><code>codes.is_a_share_code</code></td><td><a href="https://github.com/seuzxh/ifind-sector-hub/blob/main/src/ifind_sector_hub/core/codes.py#L11">codes.py:11</a></td><td>6 处：sync 成分股默认过滤、<code>__init__</code> 导出</td><td>test_codes</td></tr>
 </table>
 
 <h3>7.3 服务层端点 → 内部调用链</h3>
@@ -293,7 +293,7 @@
 <h3>8.3 用法与端点语义</h3>
 <pre><code>pip install "ifind-sector-hub[service]"
 
-from ifind_sector_hub.service import build_router
+from ifind_sector_hub.api.service import build_router
 app.include_router(build_router(hub))   # 挂到任一 FastAPI 应用</code></pre>
 <table>
   <tr><th>端点</th><th>方法</th><th>语义</th></tr>

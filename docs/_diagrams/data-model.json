@@ -7,7 +7,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/seuzxh/ifind-sector-hub",
-      "revision": "cd65b19523d8a8c2c0765c603c80977ba776b791"
+      "revision": "d9da00f0d77765e914b473b370ebeb728337818d"
     },
     "views": [
       {
@@ -57,7 +57,7 @@
       ],
       "sources": [
         {
-          "path": "ifind_sector_hub/storage.py",
+          "path": "src/ifind_sector_hub/repositories/storage.py",
           "line": 18,
           "label": "CREATE TABLE"
         }
@@ -79,7 +79,7 @@
       ],
       "sources": [
         {
-          "path": "ifind_sector_hub/storage.py",
+          "path": "src/ifind_sector_hub/repositories/storage.py",
           "line": 37,
           "label": "CREATE TABLE"
         }
@@ -101,7 +101,7 @@
       ],
       "sources": [
         {
-          "path": "ifind_sector_hub/storage.py",
+          "path": "src/ifind_sector_hub/repositories/storage.py",
           "line": 28,
           "label": "CREATE TABLE"
         }

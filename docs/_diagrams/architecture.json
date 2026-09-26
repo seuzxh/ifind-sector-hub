@@ -7,7 +7,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/seuzxh/ifind-sector-hub",
-      "revision": "b89e9d26fcd05ea35a143c23fd8af40b4e6e44a6"
+      "revision": "d9da00f0d77765e914b473b370ebeb728337818d"
     },
     "views": [
       {
@@ -76,7 +76,7 @@
       ],
       "sources": [
         {
-          "path": "ifind_sector_hub/service.py",
+          "path": "src/ifind_sector_hub/api/service.py",
           "line": 14,
           "label": "build_router"
         }
@@ -97,7 +97,7 @@
       ],
       "sources": [
         {
-          "path": "ifind_sector_hub/__init__.py",
+          "path": "src/ifind_sector_hub/__init__.py",
           "line": 46,
           "label": "class SectorHub"
         }
@@ -118,7 +118,7 @@
       ],
       "sources": [
         {
-          "path": "ifind_sector_hub/sync.py",
+          "path": "src/ifind_sector_hub/services/sync.py",
           "line": 16,
           "label": "class SectorSync"
         }
@@ -139,7 +139,7 @@
       ],
       "sources": [
         {
-          "path": "ifind_sector_hub/client.py",
+          "path": "src/ifind_sector_hub/integrations/ifind/client.py",
           "line": 21,
           "label": "class IFindClient"
         }
@@ -160,7 +160,7 @@
       ],
       "sources": [
         {
-          "path": "ifind_sector_hub/tokens.py",
+          "path": "src/ifind_sector_hub/core/tokens.py",
           "line": 31,
           "label": "class TokenStore"
         }
@@ -195,7 +195,7 @@
       ],
       "sources": [
         {
-          "path": "ifind_sector_hub/storage.py",
+          "path": "src/ifind_sector_hub/repositories/storage.py",
           "line": 48,
           "label": "class SectorStore"
         }
