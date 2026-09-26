@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import os
 
 import unittest
 from unittest import mock
-from ifind_sector_hub.sync import SectorSync
-from ifind_sector_hub.client import IFindClient
-from ifind_sector_hub.tokens import TokenStore
-from ifind_sector_hub.storage import SectorStore
+from ifind_sector_hub.services.sync import SectorSync
+from ifind_sector_hub.integrations.ifind.client import IFindClient
+from ifind_sector_hub.core.tokens import TokenStore
+from ifind_sector_hub.repositories.storage import SectorStore
 import tempfile
 
 

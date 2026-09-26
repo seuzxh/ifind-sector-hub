@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
-from .codes import is_a_share_code, is_a_share_concept
+from ..core.codes import is_a_share_code, is_a_share_concept
 
 
 class SectorSync:

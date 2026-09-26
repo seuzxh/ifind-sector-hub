@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
 from unittest import mock
-from ifind_sector_hub.tokens import TokenStore
-from ifind_sector_hub.client import IFindClient
+from ifind_sector_hub.core.tokens import TokenStore
+from ifind_sector_hub.integrations.ifind.client import IFindClient
 
 
 def _resp(status=200, json_data=None):
@@ -23,7 +21,7 @@ def make_client():
 class PostTests(unittest.TestCase):
     def test_post_ok(self):
         c = make_client()
-        with mock.patch("ifind_sector_hub.client.requests.post", return_value=_resp()) as p:
+        with mock.patch("ifind_sector_hub.integrations.ifind.client.requests.post", return_value=_resp()) as p:
             out = c._post("http://x/api", {"a": 1})
         self.assertEqual(out, {"errorcode": 0})
         p.assert_called_once()
@@ -32,7 +30,7 @@ class PostTests(unittest.TestCase):
     def test_401_refresh_then_retry(self):
         c = make_client()
         # 第1次 401；刷新返回 new-at；第2次成功
-        with mock.patch("ifind_sector_hub.client.requests.post",
+        with mock.patch("ifind_sector_hub.integrations.ifind.client.requests.post",
                         side_effect=[_resp(status=401), _resp()]) as p, \
              mock.patch.object(c.tokens, "refresh_access_token", return_value="new-at") as rf:
             out = c._post("http://x/api", {})
@@ -46,8 +44,8 @@ class PostTests(unittest.TestCase):
         import requests as real_requests
         c = make_client()
         exc = real_requests.exceptions.RequestException("boom")
-        with mock.patch("ifind_sector_hub.client.requests.post", side_effect=[exc, exc, _resp()]) as p, \
-             mock.patch("ifind_sector_hub.client.time.sleep") as sl:
+        with mock.patch("ifind_sector_hub.integrations.ifind.client.requests.post", side_effect=[exc, exc, _resp()]) as p, \
+             mock.patch("ifind_sector_hub.integrations.ifind.client.time.sleep") as sl:
             out = c._post("http://x/api", {})
         self.assertEqual(out, {"errorcode": 0})
         self.assertEqual(p.call_count, 3)          # max_retries=3
@@ -59,8 +57,8 @@ class PostTests(unittest.TestCase):
         import requests as real_requests
         c = make_client()
         exc = real_requests.exceptions.RequestException("boom")
-        with mock.patch("ifind_sector_hub.client.requests.post", side_effect=exc), \
-             mock.patch("ifind_sector_hub.client.time.sleep"):
+        with mock.patch("ifind_sector_hub.integrations.ifind.client.requests.post", side_effect=exc), \
+             mock.patch("ifind_sector_hub.integrations.ifind.client.time.sleep"):
             with self.assertRaises(real_requests.exceptions.RequestException):
                 c._post("http://x/api", {})
 

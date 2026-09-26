@@ -15,7 +15,7 @@ import time
 import requests
 from typing import List, Dict, Optional, Any
 
-from .tokens import TokenStore
+from ...core.tokens import TokenStore
 
 
 class IFindClient:

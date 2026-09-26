@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
-from ifind_sector_hub.codes import is_a_share_code, is_a_share_concept
+from ifind_sector_hub.core.codes import is_a_share_code, is_a_share_concept
 
 
 class CodesTests(unittest.TestCase):

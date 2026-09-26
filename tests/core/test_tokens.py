@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
-import sys, os, json, tempfile
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import os, json, tempfile
 
 import unittest
 from unittest import mock
-from ifind_sector_hub import tokens as tk
+from ifind_sector_hub.core import tokens as tk
 
 
 def _ok_response(new_at, new_rt=None):

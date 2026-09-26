@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
-import sys, os, tempfile
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import os, tempfile
 
 import unittest
-from ifind_sector_hub.storage import SectorStore
+from ifind_sector_hub.repositories.storage import SectorStore
 
 BOARDS = [
     {"concept_code": "885101.TI", "concept_name": "人工智能", "category": "概念"},

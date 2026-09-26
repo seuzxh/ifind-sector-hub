@@ -1,0 +1,12 @@
+[importlinter]
+root_packages =
+    ifind_sector_hub
+
+[importlinter:contract:layers]
+name = 分层依赖单向（api→services→repositories/integrations→core；门面__init__不受层约束）
+type = layers
+layers =
+    ifind_sector_hub.api
+    ifind_sector_hub.services
+    ifind_sector_hub.repositories | ifind_sector_hub.integrations
+    ifind_sector_hub.core

@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-import sys, os, tempfile
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import os, tempfile
 
 import unittest
 from unittest import mock
@@ -8,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from ifind_sector_hub import SectorHub, HubConfig, TokenStore
-from ifind_sector_hub.service import build_router
+from ifind_sector_hub.api.service import build_router
 
 
 def make_app(tmpdir):

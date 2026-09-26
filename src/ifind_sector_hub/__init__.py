@@ -14,11 +14,11 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from .codes import A_SHARE_CONCEPT_PREFIXES, A_SHARE_SUFFIXES, is_a_share_code, is_a_share_concept
-from .tokens import FileTokenStore, TokenStore, resolve_tokens
-from .client import IFindClient
-from .storage import SectorStore
-from .sync import SectorSync
+from .core.codes import A_SHARE_CONCEPT_PREFIXES, A_SHARE_SUFFIXES, is_a_share_code, is_a_share_concept
+from .core.tokens import FileTokenStore, TokenStore, resolve_tokens
+from .integrations.ifind.client import IFindClient
+from .repositories.storage import SectorStore
+from .services.sync import SectorSync
 
 __all__ = [
     "HubConfig", "SectorHub", "FileTokenStore", "TokenStore", "resolve_tokens",
