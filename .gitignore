@@ -2,3 +2,8 @@ __pycache__/
 *.pyc
 *.egg-info/
 .codegraph/
+
+# --- agent-config 追加 2026-09-27 ---
+data/
+scratch/
+.env
