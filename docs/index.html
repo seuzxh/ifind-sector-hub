@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ifind-sector-hub · 板块数据层公共组件</title>
-<meta name="description" content="ifind 板块/概念数据层公共组件：数据源客户端、三表存储、同步编排。架构、设计方案与需求文档。">
+<meta name="description" content="ifind 板块/概念与成分股关系权威数据层：数据源客户端、完整快照存储、同步编排。">
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -27,7 +27,7 @@
 <main>
 
 <h1>ifind 板块/概念数据层公共组件</h1>
-<p class="lead">从 monitor（ifind-sector-attribution）抽离的公共数据层：iFinD 数据源客户端、三表快照存储、同步编排，供多平台复用。</p>
+<p class="lead">从 monitor（ifind-sector-attribution）抽离的公共数据层：以 concept_members 统一板块与成分股双向关系，供多平台复用。</p>
 
 <div class="stats">
   <div class="stat"><div class="num">7</div><div class="lbl">模块（含门面）</div></div>
@@ -43,8 +43,8 @@
 </p>
 <ul>
   <li><b>取数</b>——封装 8 个 iFinD HTTP 端点（个股概念 / 成分股 / 行情 / 概念信息 / 智能选股），自带 token 生命周期管理（401 双检刷新、flock 跨进程共享、轮换落盘）、指数退避重试与批量分片；消费方不碰 HTTP 细节。</li>
-  <li><b>落库</b>——三张表（概念字典 / 概念成分股 / 个股-概念映射）的建表、幂等写入与 <code>MAX(date)</code> 最新快照读取；一次接入，所有消费方共享同一份口径。</li>
-  <li><b>日更</b>——同步编排管线：字典初始化 → 成分股 8 线程并发拉取（失败不中断）→ 个股映射 → 全市场扫描补全新概念 → 观察池刷新。</li>
+  <li><b>落库</b>——以 <code>concept_members</code> 作为板块与成分股关系的唯一权威来源，支持双向查询、完整集合替换和空快照；接口 1 标签/权重另表缓存。</li>
+  <li><b>日更</b>——同步编排管线校验 iFinD 业务错误与响应结构；单概念失败不中断其他任务，也不会覆盖上一份有效快照。</li>
   <li><b>供数</b>——Python SDK（<code>SectorHub</code> 门面）进程内直用，或挂一个可选 FastAPI 路由对非 Python 消费方供数。</li>
 </ul>
 <p>
@@ -60,7 +60,7 @@
   </div>
   <div class="card">
     <a class="card-link" href="design.html">设计方案 →</a>
-    <p>六个模块的设计要点：token 生命周期、重试内核、三表快照语义、并发同步、迁移钩子、可选服务层；附 ponytail-audit 简化机会清单（§10）。</p>
+    <p>六个模块的设计要点：token 生命周期、重试内核、权威关系快照、并发同步报告、迁移钩子、可选服务层。</p>
   </div>
   <div class="card">
     <a class="card-link" href="architecture.html">组件架构图 →</a>
@@ -68,7 +68,7 @@
   </div>
   <div class="card">
     <a class="card-link" href="data-model.html">数据模型图 →</a>
-    <p>三表 ER 视图：主键、逻辑外键、读时 JOIN、级联清理与股票池派生关系。</p>
+    <p>三张领域表 ER 视图：主键、逻辑外键、级联清理与股票池派生关系；零行快照由内部元数据表记录。</p>
   </div>
   <div class="card">
     <a class="card-link" href="sync-workflow.html">同步编排流程图 →</a>
@@ -100,8 +100,8 @@
   </tr>
   <tr>
     <td><code>repositories.storage</code></td>
-    <td>三表存储</td>
-    <td><code>ths_concept_dict</code> / <code>concept_members</code> / <code>stock_concept_map</code>；MAX(date) 快照语义；replace 级联 + 同事务迁移钩子；<code>get_concept_members_map</code> 批量读 + 5 个只读访问器（monitor 裸 SQL 统一入口）</td>
+    <td>权威关系存储</td>
+    <td><code>concept_members</code> 双向权威查询；同日完整替换；<code>relation_snapshots</code> 记录空快照；<code>stock_concept_map</code> 仅承载接口 1 标签/权重</td>
   </tr>
   <tr>
     <td><code>services.sync</code></td>
@@ -134,8 +134,9 @@ hub = SectorHub(HubConfig(
 ))
 
 hub.client.smart_pick_stocks("机器人概念板块成分股")   # 数据源（含 smart_pick_boards 枚举板块）
-hub.store.get_concept_members_map(["885001.TI"])    # 三表快照读（不传日期=最新快照）
-hub.sync.sync_concept_members(["885001.TI"], "20260918")  # 并发拉成分股入库</code></pre>
+hub.store.get_concept_members_map(["885001.TI"])    # 概念 → 成分股
+hub.store.get_stock_memberships("600519.SH")        # 成分股 → 概念
+hub.sync.sync_concept_members_report(["885001.TI"], "20260918")</code></pre>
 
 <h2>语义注意事项（沿用 monitor 原语义）</h2>
 <div class="note warn">
@@ -143,7 +144,10 @@ hub.sync.sync_concept_members(["885001.TI"], "20260918")  # 并发拉成分股�
   这是从 monitor 原样保留的历史语义，消费方拼接查询时需注意。
 </div>
 <div class="note">
-  <b>永久缓存快照语义：</b>三表读方法不传日期时取 <code>MAX(date)</code> 最新快照，历史数据不清理、不去重。
+  <b>完整快照语义：</b>同一主体、同一日期重跑会替换整个关系集合；有效空集合也可成为最新快照，历史日期不清理。
+</div>
+<div class="note">
+  <b>失败不发布：</b>iFinD 业务错误或畸形响应保留上一份有效快照；同步报告会返回失败概念码。
 </div>
 <div class="note">
   <b>迁移钩子：</b><code>replace_concept_dict(boards, migrate_hook)</code> 的钩子在<b>同一事务/同一连接</b>内执行，

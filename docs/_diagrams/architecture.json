@@ -41,7 +41,7 @@
           "store",
           "db"
         ],
-        "note": "三表访问器不传日期即取 MAX(date) 最新快照。"
+        "note": "concept_members 提供权威双向关系；快照元数据使空集合也可成为最新版本。"
       }
     ]
   },
@@ -184,7 +184,7 @@
       "id": "store",
       "type": "backend",
       "label": "SectorStore",
-      "sublabel": "三表 DDL + 访问器",
+      "sublabel": "权威关系快照 + 访问器",
       "pos": [
         240,
         460
@@ -196,7 +196,7 @@
       "sources": [
         {
           "path": "src/ifind_sector_hub/repositories/storage.py",
-          "line": 48,
+          "line": 58,
           "label": "class SectorStore"
         }
       ]
@@ -335,20 +335,20 @@
     },
     {
       "dot": "emerald",
-      "title": "三表存储",
+      "title": "权威关系存储",
       "items": [
-        "ths_concept_dict / concept_members / stock_concept_map 三表",
-        "读方法不传日期取 MAX(date) 最新快照，历史不清理",
-        "INSERT OR REPLACE 幂等写入，replace_concept_dict 级联清理 + 同事务迁移钩子"
+        "concept_members 同时支撑概念到股票与股票到概念",
+        "同日完整替换；relation_snapshots 记录有效空快照",
+        "旧日期保留，旧库与仍直接写领域表的消费方可兼容读取"
       ]
     },
     {
       "dot": "violet",
       "title": "同步编排",
       "items": [
-        "成分股线程池并发（默认 8），失败概念不中断整体",
-        "全集补全：扫全市场股票反向发现新概念码",
-        "观察池刷新：接口5 刷字典 + 接口2 刷成分股"
+        "成分股线程池并发（默认 8），失败概念不发布且不中断整体",
+        "同步报告返回成功/失败数量、失败码与保存条数",
+        "全集补全：扫全市场股票反向发现新概念码"
       ]
     },
     {

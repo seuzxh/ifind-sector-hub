@@ -29,7 +29,7 @@ def build_router(hub) -> APIRouter:
 
     @router.get("/stocks/{stock_code}/concepts")
     def stock_concepts(stock_code: str, date: Optional[str] = None):
-        rows = hub.store.get_stock_concepts(stock_code, date)
+        rows = hub.store.get_stock_memberships(stock_code, date)
         return {"stock_code": stock_code, "count": len(rows), "concepts": rows}
 
     class SyncMembersRequest(BaseModel):
@@ -38,7 +38,7 @@ def build_router(hub) -> APIRouter:
 
     @router.post("/sync/members")
     def sync_members(req: SyncMembersRequest):
-        saved = hub.sync.sync_concept_members(req.concept_codes, req.date)
-        return {"ok": True, "saved_records": saved}
+        return hub.sync.sync_concept_members_report(
+            req.concept_codes, req.date)
 
     return router

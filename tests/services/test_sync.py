@@ -43,6 +43,83 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(len(self.store.get_concept_members("885001.TI")), 2)
         self.assertEqual(self.store.get_concept_members("885BAD.TI"), [])
 
+    def test_sync_report_rejects_missing_tables_without_publishing(self):
+        self.store.save_concept_members("885001.TI", [
+            {"stock_code": "600519.SH", "stock_name": "贵州茅台"},
+        ], "20260916")
+
+        with mock.patch.object(
+                self.client, "get_concept_members",
+                return_value={"errorcode": 0}):
+            report = self.sync.sync_concept_members_report(
+                ["885001.TI"], "20260917")
+
+        self.assertEqual(report, {
+            "ok": False,
+            "member_date": "20260917",
+            "requested_concepts": 1,
+            "successful_concepts": 0,
+            "failed_concepts": 1,
+            "failed_codes": ["885001.TI"],
+            "saved_records": 0,
+        })
+        self.assertEqual(self.store.get_concept_members("885001.TI"), [
+            {"stock_code": "600519.SH", "stock_name": "贵州茅台"},
+        ])
+
+    def test_sync_report_publishes_valid_empty_snapshot(self):
+        self.store.save_concept_members("885001.TI", [
+            {"stock_code": "600519.SH", "stock_name": "贵州茅台"},
+        ], "20260916")
+        empty_response = {"errorcode": 0, "tables": [{"table": {
+            "p03473_f002": [], "p03473_f003": [],
+        }}]}
+
+        with mock.patch.object(
+                self.client, "get_concept_members",
+                return_value=empty_response):
+            report = self.sync.sync_concept_members_report(
+                ["885001.TI"], "20260917")
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["successful_concepts"], 1)
+        self.assertEqual(report["saved_records"], 0)
+        self.assertEqual(self.store.get_concept_members("885001.TI"), [])
+        self.assertEqual(
+            self.store.get_concept_members("885001.TI", "20260916"),
+            [{"stock_code": "600519.SH", "stock_name": "贵州茅台"}],
+        )
+
+    def test_sync_report_rejects_mismatched_member_columns(self):
+        malformed_response = {"errorcode": 0, "tables": [{"table": {
+            "p03473_f002": ["600519.SH"], "p03473_f003": [],
+        }}]}
+
+        with mock.patch.object(
+                self.client, "get_concept_members",
+                return_value=malformed_response):
+            report = self.sync.sync_concept_members_report(
+                ["885001.TI"], "20260917")
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["failed_codes"], ["885001.TI"])
+        self.assertEqual(self.store.get_concept_members("885001.TI"), [])
+
+    def test_sync_report_rejects_duplicate_stock_codes(self):
+        malformed_response = {"errorcode": 0, "tables": [{"table": {
+            "p03473_f002": ["600519.SH", "600519.SH"],
+            "p03473_f003": ["贵州茅台", "贵州茅台"],
+        }}]}
+
+        with mock.patch.object(
+                self.client, "get_concept_members",
+                return_value=malformed_response):
+            report = self.sync.sync_concept_members_report(
+                ["885001.TI"], "20260917")
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["failed_codes"], ["885001.TI"])
+
     def test_sync_concept_members_stock_filter(self):
         with mock.patch.object(self.client, "get_concept_members",
                                side_effect=lambda cc, d: {"tables": [{"table": {

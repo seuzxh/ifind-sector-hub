@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os, tempfile
+import os, sqlite3, tempfile
 
 import unittest
 from ifind_sector_hub.repositories.storage import SectorStore
@@ -18,6 +18,55 @@ class StorageTests(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
+    def test_existing_three_table_database_is_upgraded_in_place(self):
+        db_path = os.path.join(self._tmp.name, "legacy.db")
+        with sqlite3.connect(db_path) as conn:
+            conn.executescript("""
+                CREATE TABLE ths_concept_dict (
+                    concept_code TEXT PRIMARY KEY, concept_name TEXT NOT NULL,
+                    full_name TEXT, index_code TEXT, main_code TEXT,
+                    thscode TEXT, update_date TEXT
+                );
+                CREATE TABLE concept_members (
+                    concept_code TEXT NOT NULL, stock_code TEXT NOT NULL,
+                    stock_name TEXT, member_date TEXT NOT NULL,
+                    PRIMARY KEY (concept_code, stock_code, member_date)
+                );
+                CREATE TABLE stock_concept_map (
+                    stock_code TEXT NOT NULL, concept_code TEXT NOT NULL,
+                    map_date TEXT NOT NULL, weight REAL DEFAULT 1.0,
+                    PRIMARY KEY (stock_code, concept_code, map_date)
+                );
+                INSERT INTO ths_concept_dict
+                    (concept_code, concept_name)
+                    VALUES ('885101.TI', '人工智能');
+                INSERT INTO concept_members VALUES
+                    ('885101.TI', '600519.SH', '贵州茅台', '20260901');
+            """)
+
+        store = SectorStore(db_path)
+
+        self.assertEqual(store.get_concept_members("885101.TI"), [
+            {"stock_code": "600519.SH", "stock_name": "贵州茅台"},
+        ])
+        with sqlite3.connect(db_path) as conn:
+            self.assertIsNotNone(conn.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name='relation_snapshots'"
+            ).fetchone())
+
+    def test_legacy_direct_writer_can_publish_a_newer_nonempty_snapshot(self):
+        self.store.save_concept_members("885101.TI", [], "20260901")
+        with sqlite3.connect(self.store.db_path) as conn:
+            conn.execute(
+                "INSERT INTO concept_members VALUES (?, ?, ?, ?)",
+                ("885101.TI", "600519.SH", "贵州茅台", "20260902"),
+            )
+
+        self.assertEqual(self.store.get_concept_members("885101.TI"), [
+            {"stock_code": "600519.SH", "stock_name": "贵州茅台"},
+        ])
+
     # ---- 快照语义（行为等价红线 #2）----
     def test_members_latest_snapshot_semantics(self):
         self.store.save_concept_members("885101.TI", [
@@ -33,6 +82,39 @@ class StorageTests(unittest.TestCase):
         mmap = self.store.get_concept_members_map(["885101.TI"])
         self.assertEqual(len(mmap["885101.TI"]), 2)
 
+    def test_members_same_date_sync_replaces_the_complete_set(self):
+        self.store.save_concept_members("885101.TI", [
+            {"stock_code": "600519.SH", "stock_name": "贵州茅台"},
+            {"stock_code": "000001.SZ", "stock_name": "平安银行"},
+        ], "20260910")
+
+        self.store.save_concept_members("885101.TI", [
+            {"stock_code": "600519.SH", "stock_name": "贵州茅台"},
+        ], "20260910")
+
+        self.assertEqual(self.store.get_concept_members("885101.TI", "20260910"), [
+            {"stock_code": "600519.SH", "stock_name": "贵州茅台"},
+        ])
+
+    def test_empty_member_snapshot_becomes_latest_without_deleting_history(self):
+        self.store.save_concept_dict([
+            {"concept_code": "885101.TI", "short_name": "人工智能"},
+        ])
+        self.store.save_concept_members("885101.TI", [
+            {"stock_code": "600519.SH", "stock_name": "贵州茅台"},
+        ], "20260910")
+
+        self.store.save_concept_members("885101.TI", [], "20260911")
+
+        self.assertEqual(self.store.get_concept_members("885101.TI"), [])
+        self.assertEqual(self.store.get_concept_members_map(["885101.TI"]), {
+            "885101.TI": [],
+        })
+        self.assertEqual(self.store.get_stock_memberships("600519.SH"), [])
+        self.assertEqual(self.store.get_concept_members("885101.TI", "20260910"), [
+            {"stock_code": "600519.SH", "stock_name": "贵州茅台"},
+        ])
+
     def test_stock_concepts_map_semantics(self):
         self.store.save_concept_dict([{"concept_code": "885101.TI", "short_name": "人工智能"}])
         self.store.save_stock_concept_map(
@@ -40,6 +122,62 @@ class StorageTests(unittest.TestCase):
         rows = self.store.get_stock_concepts("600519.SH")
         self.assertEqual(rows[0]["concept_code"], "885101.TI")
         self.assertEqual(rows[0]["weight"], 1.0)
+
+    def test_stock_concept_same_date_sync_replaces_labels_and_weights(self):
+        self.store.save_concept_dict([
+            {"concept_code": "885101.TI", "short_name": "人工智能"},
+            {"concept_code": "885102.TI", "short_name": "机器人"},
+        ])
+        self.store.save_stock_concept_map({
+            "600519.SH": [
+                {"concept_name": "人工智能", "concept_code": "885101.TI"},
+                {"concept_name": "机器人", "concept_code": "885102.TI"},
+            ],
+        }, "2026-09-10")
+
+        self.store.save_stock_concept_map({
+            "600519.SH": [
+                {"concept_name": "机器人", "concept_code": "885102.TI"},
+            ],
+        }, "2026-09-10")
+
+        self.assertEqual(self.store.get_stock_concepts("600519.SH", "2026-09-10"), [
+            {"concept_code": "885102.TI", "concept_name": "机器人", "weight": 1.0},
+        ])
+
+    def test_empty_stock_concept_snapshot_becomes_latest(self):
+        self.store.save_concept_dict([
+            {"concept_code": "885101.TI", "short_name": "人工智能"},
+        ])
+        self.store.save_stock_concept_map({
+            "600519.SH": [
+                {"concept_name": "人工智能", "concept_code": "885101.TI"},
+            ],
+        }, "2026-09-10")
+
+        self.store.save_stock_concept_map({"600519.SH": []}, "2026-09-11")
+
+        self.assertEqual(self.store.get_stock_concepts("600519.SH"), [])
+        self.assertEqual(self.store.get_stock_concepts("600519.SH", "2026-09-10"), [
+            {"concept_code": "885101.TI", "concept_name": "人工智能", "weight": 1.0},
+        ])
+
+    def test_stock_memberships_are_derived_from_latest_member_snapshots(self):
+        self.store.save_concept_dict([
+            {"concept_code": "884001.TI", "short_name": "半导体"},
+            {"concept_code": "885101.TI", "short_name": "人工智能"},
+        ])
+        self.store.save_concept_members("884001.TI", [
+            {"stock_code": "600519.SH", "stock_name": "贵州茅台"}], "20260901")
+        self.store.save_concept_members("885101.TI", [
+            {"stock_code": "600519.SH", "stock_name": "贵州茅台"}], "20260902")
+
+        rows = self.store.get_stock_memberships("600519.SH")
+
+        self.assertEqual(rows, [
+            {"concept_code": "884001.TI", "concept_name": "半导体"},
+            {"concept_code": "885101.TI", "concept_name": "人工智能"},
+        ])
 
     # ---- replace + 级联 + 迁移钩子（红线 #3：同事务）----
     def test_replace_cascade_and_migrate_hook(self):
@@ -82,6 +220,25 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(result["dropped_watched"], [])
         self.assertNotEqual(self.store.get_concept_members("885101.TI"), [])
 
+    def test_replace_concept_dict_removes_retired_stock_label_rows(self):
+        self.store.save_concept_dict([
+            {"concept_code": "885101.TI", "short_name": "人工智能"},
+        ])
+        self.store.save_stock_concept_map({
+            "600519.SH": [
+                {"concept_name": "人工智能", "concept_code": "885101.TI"},
+            ],
+        }, "2026-09-10")
+
+        self.store.replace_concept_dict([
+            {"concept_code": "885999.TI", "concept_name": "新概念", "category": "概念"},
+        ])
+        self.store.save_concept_dict([
+            {"concept_code": "885101.TI", "short_name": "重用代码"},
+        ])
+
+        self.assertEqual(self.store.get_stock_concepts("600519.SH", "2026-09-10"), [])
+
     # ---- 新增访问器 ----
     def test_new_accessors(self):
         self.store.save_concept_dict([{"concept_code": "885101.TI", "short_name": "人工智能"}])
@@ -110,6 +267,33 @@ class AShareFilterTests(unittest.TestCase):
                 {"stock_code": "600519.SH", "stock_name": "a"},
                 {"stock_code": "AAPL.US", "stock_name": "b"}], "20260901")
             self.assertEqual(store.get_all_member_stock_codes(), ["600519.SH"])
+
+    def test_all_member_stock_codes_use_each_concepts_latest_snapshot(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = SectorStore(os.path.join(d, "t.db"))
+            store.save_concept_members("885101.TI", [
+                {"stock_code": "600519.SH", "stock_name": "a"}], "20260901")
+            store.save_concept_members("885102.TI", [
+                {"stock_code": "000001.SZ", "stock_name": "b"}], "20260902")
+
+            self.assertEqual(
+                store.get_all_member_stock_codes(),
+                ["000001.SZ", "600519.SH"],
+            )
+
+            store.save_concept_members("885101.TI", [], "20260903")
+            self.assertEqual(store.get_all_member_stock_codes(), ["000001.SZ"])
+
+    def test_global_latest_accessors_respect_empty_snapshot_marker(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = SectorStore(os.path.join(d, "t.db"))
+            store.save_concept_members("885101.TI", [
+                {"stock_code": "600519.SH", "stock_name": "a"}], "20260901")
+            store.save_concept_members("885101.TI", [], "20260902")
+
+            self.assertEqual(store.get_latest_member_date(), "20260902")
+            self.assertEqual(store.get_latest_member_stock_names(), {})
+            self.assertEqual(store.get_latest_members_snapshot(), ("20260902", {}))
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ifind-sector-hub"
 version = "0.2.0"
-description = "ifind 板块/概念数据层：客户端、三表存储、同步编排（公共组件）"
+description = "ifind 板块/概念与成分股关系权威数据层：客户端、快照存储、同步编排"
 requires-python = ">=3.9"
 dependencies = ["requests>=2.31.0"]
 

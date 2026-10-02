@@ -27,6 +27,26 @@ class PostTests(unittest.TestCase):
         p.assert_called_once()
         self.assertEqual(p.call_args.kwargs["headers"]["access_token"], "at1")
 
+    def test_post_rejects_ifind_business_error(self):
+        c = make_client()
+        response = _resp(json_data={"errorcode": -4302, "errmsg": "invalid parameter"})
+
+        with mock.patch(
+                "ifind_sector_hub.integrations.ifind.client.requests.post",
+                return_value=response):
+            with self.assertRaisesRegex(RuntimeError, "-4302.*invalid parameter"):
+                c._post("http://x/api", {"a": 1})
+
+    def test_post_rejects_non_object_json(self):
+        c = make_client()
+        response = _resp(json_data=[{"errorcode": 0}])
+
+        with mock.patch(
+                "ifind_sector_hub.integrations.ifind.client.requests.post",
+                return_value=response):
+            with self.assertRaisesRegex(RuntimeError, "JSON object"):
+                c._post("http://x/api", {"a": 1})
+
     def test_401_refresh_then_retry(self):
         c = make_client()
         # 第1次 401；刷新返回 new-at；第2次成功
@@ -88,6 +108,21 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(out["600519.SH"], [
             {"concept_name": "白酒", "concept_code": "885555.TI"},
             {"concept_name": "高端白酒", "concept_code": "886666.TI"}])
+
+    def test_batch_get_stock_concepts_preserves_explicit_empty_result(self):
+        c = make_client()
+        resp = {"errorcode": 0, "tables": [{
+            "thscode": "600519.SH",
+            "table": {
+                "ths_the_ths_concept_index_stock": [],
+                "ths_the_ths_concept_index_code_stock": [],
+            }}]}
+
+        with mock.patch.object(c, "get_stock_concepts", return_value=resp):
+            out = c.batch_get_stock_concepts(
+                ["600519.SH"], "2026-09-17")
+
+        self.assertEqual(out, {"600519.SH": []})
 
     def test_batch_size_default_from_client_config(self):
         c = make_client()  # batch_size=100

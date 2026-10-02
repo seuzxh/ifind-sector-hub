@@ -30,21 +30,37 @@ class SectorSync:
         """
         try:
             resp = self.client.get_concept_members(concept_code, member_date)
-            if "tables" in resp and len(resp["tables"]) > 0:
-                table = resp["tables"][0].get("table", {})
-                stock_codes = table.get("p03473_f002", [])
-                stock_names = table.get("p03473_f003", [])
-                members = []
-                for i in range(len(stock_codes)):
-                    sc = stock_codes[i]
-                    if stock_filter is not None and not stock_filter(sc):
-                        continue
-                    members.append({
-                        "stock_code": sc,
-                        "stock_name": stock_names[i] if i < len(stock_names) else "",
-                    })
-                return (concept_code, members)
-            return (concept_code, [])  # 无成分股数据视为空成功
+            if not isinstance(resp, dict):
+                raise ValueError("响应不是对象")
+            tables = resp.get("tables")
+            if not isinstance(tables, list) or not tables:
+                raise ValueError("响应缺少 tables")
+            table = tables[0].get("table") if isinstance(tables[0], dict) else None
+            if not isinstance(table, dict):
+                raise ValueError("响应缺少 table")
+            stock_codes = table.get("p03473_f002")
+            stock_names = table.get("p03473_f003")
+            if not isinstance(stock_codes, list) or not isinstance(stock_names, list):
+                raise ValueError("成分股字段不是列表")
+            if len(stock_codes) != len(stock_names):
+                raise ValueError("成分股代码与名称数量不一致")
+            members = []
+            seen_codes = set()
+            for sc, stock_name in zip(stock_codes, stock_names):
+                if not isinstance(sc, str) or not sc.strip():
+                    raise ValueError("成分股代码为空或类型错误")
+                if sc in seen_codes:
+                    raise ValueError(f"成分股代码重复: {sc}")
+                if not isinstance(stock_name, str):
+                    raise ValueError(f"成分股名称类型错误: {sc}")
+                seen_codes.add(sc)
+                if stock_filter is not None and not stock_filter(sc):
+                    continue
+                members.append({
+                    "stock_code": sc,
+                    "stock_name": stock_name,
+                })
+            return (concept_code, members)
         except Exception as e:
             print(f"[WARN] 获取 {concept_code} 成分股失败: {e}")
             return (concept_code, None)
@@ -53,6 +69,14 @@ class SectorSync:
     def sync_concept_members(self, concept_codes: List[str], member_date: str,
                              stock_filter: Optional[Callable[[str], bool]] = None) -> int:
         """并发拉取给定概念列表的成分股并入库，返回入库条数（失败概念不中断）。"""
+        report = self.sync_concept_members_report(
+            concept_codes, member_date, stock_filter=stock_filter)
+        return report["saved_records"]
+
+    def sync_concept_members_report(
+            self, concept_codes: List[str], member_date: str,
+            stock_filter: Optional[Callable[[str], bool]] = None) -> Dict:
+        """同步成分股并返回逐批次结果；失败概念不会覆盖上一份快照。"""
         total = len(concept_codes)
         done_count = saved_records = success_count = 0
         counter_lock = threading.Lock()
@@ -68,8 +92,7 @@ class SectorSync:
                 if members is None:
                     failed_codes.append(code)
                 else:
-                    if members:
-                        self.store.save_concept_members(code, members, member_date)
+                    self.store.save_concept_members(code, members, member_date)
                     success_count += 1
                     saved_records += len(members)
                 with counter_lock:
@@ -84,7 +107,16 @@ class SectorSync:
             preview = ", ".join(failed_codes[:20])
             more = "" if len(failed_codes) <= 20 else f" ...（共 {len(failed_codes)} 个）"
             print(f"[UNIVERSE] 失败概念码: {preview}{more}")
-        return saved_records
+        failed_codes.sort()
+        return {
+            "ok": not failed_codes,
+            "member_date": member_date,
+            "requested_concepts": total,
+            "successful_concepts": success_count,
+            "failed_concepts": len(failed_codes),
+            "failed_codes": failed_codes,
+            "saved_records": saved_records,
+        }
 
     # ---------- 字典 ----------
     def init_concept_dict(self, concept_codes: List[str]) -> List[Dict]:

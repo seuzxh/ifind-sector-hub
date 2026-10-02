@@ -1,6 +1,8 @@
 # ifind-sector-hub
 
-ifind 板块/概念数据层公共组件：数据源客户端（token 生命周期/重试/分片）、三表存储（字典/成分股/个股-概念映射，MAX(date) 快照语义）、同步编排。从 monitor（ifind-sector-attribution）抽离，供多平台复用。
+ifind 板块/概念数据层公共组件：数据源客户端（token 生命周期/重试/分片）、板块与成分股权威快照、同步编排。从 monitor（ifind-sector-attribution）抽离，供多平台复用。
+
+`concept_members` 是“同花顺概念板块 ↔ 成分股”关系的唯一权威来源：按概念正查和按股票反查都从它读取。`stock_concept_map` 仅保留接口 1 返回的标签与等权信息，不作为成分关系真相源。
 
 ## 安装
 
@@ -24,8 +26,9 @@ hub = SectorHub(HubConfig(
 ))
 
 hub.client.smart_pick_stocks("机器人概念板块成分股")  # 数据源（含 smart_pick_boards 枚举板块）
-hub.store.get_concept_members_map(["885001.TI"])    # 三表快照读（不传日期=最新快照）
-hub.sync.sync_concept_members(["885001.TI"], "20260918")  # 并发拉成分股入库
+hub.store.get_concept_members_map(["885001.TI"])    # 概念 → 成分股
+hub.store.get_stock_memberships("600519.SH")        # 成分股 → 概念，同一权威表反查
+hub.sync.sync_concept_members_report(["885001.TI"], "20260918")  # 含失败码的同步报告
 ```
 
 ## 模块（0.2.0 起：src 布局 + 分层子包）
@@ -35,7 +38,7 @@ hub.sync.sync_concept_members(["885001.TI"], "20260918")  # 并发拉成分股�
 | `core.codes` | 叶子 | A股代码/前缀过滤（`is_a_share_code` / `is_a_share_concept`） |
 | `core.tokens` | 叶子 | `TokenStore`（内存）/ `FileTokenStore`（JSON+flock，轮换自动持久化） |
 | `integrations.ifind.client` | 外部适配 | `IFindClient`：接口1-6/实时行情/smart_pick，401 自动刷新 |
-| `repositories.storage` | 数据层 | `SectorStore`：三表 DDL+读写、`replace_concept_dict`（级联清理+同事务迁移钩子）、5 个只读访问器 |
+| `repositories.storage` | 数据层 | `SectorStore`：三张领域表 + 快照元数据、全量替换写、权威双向查询、`replace_concept_dict`（级联清理+同事务迁移钩子） |
 | `services.sync` | 业务编排 | `SectorSync`：字典/成分股并发/映射/全集补全/观察池刷新 |
 | `api.service` | 表现层（可选） | FastAPI router（`build_router(hub)`，只读+刷新触发） |
 
@@ -46,13 +49,14 @@ hub.sync.sync_concept_members(["885001.TI"], "20260918")  # 并发拉成分股�
 ## 注意（沿用 monitor 原语义）
 
 - **日期格式跨表不一致**：字典/映射表 `YYYY-MM-DD`，成分股表 `YYYYMMDD`。
-- **永久缓存快照语义**：三表读方法不传日期取 `MAX(date)` 最新快照，历史不清理。
+- **完整快照语义**：同一主体、同一日期重跑会先替换旧集合；空集合也会发布为最新快照。历史日期仍保留。
+- **失败不发布**：iFinD 业务错误或畸形响应不会覆盖上一份有效快照；`sync_concept_members_report` 返回失败数量与概念码。
 - `replace_concept_dict(boards, migrate_hook)` 的钩子在同一事务/连接内执行，用于迁移消费方自己的关联表（如 monitor 的 watched 勾选）。
 
 ## 测试
 
 ```bash
 pip install -e ".[dev]"                # 前置：可编辑安装（src 布局必需，dev 含 import-linter）
-python -m unittest discover -s tests   # 33 tests
+python -m unittest discover -s tests   # 51 tests
 lint-imports                           # 分层契约校验
 ```

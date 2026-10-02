@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""三表存储：ths_concept_dict / stock_concept_map / concept_members。
+"""板块领域表与关系快照元数据存储。
 
-快照语义（行为等价红线）：表带日期快照列，读方法日期参数缺省取 MAX(date) 最新快照，
-历史不清理，与同步日期解耦。schema 与 monitor database.py 原始定义逐字一致（同一库文件兼容）。
+三张领域表保持 monitor 旧库兼容；relation_snapshots 记录包括零行在内的已发布快照。
+同一主体、同一日期写入采用完整集合替换，历史日期不清理。
 """
 
 import os
@@ -42,11 +42,21 @@ CREATE TABLE IF NOT EXISTS concept_members (
     PRIMARY KEY (concept_code, stock_code, member_date)
 );
 CREATE INDEX IF NOT EXISTS idx_cm_concept ON concept_members(concept_code);
+
+CREATE TABLE IF NOT EXISTS relation_snapshots (
+    relation_type  TEXT NOT NULL,
+    subject_code   TEXT NOT NULL,
+    snapshot_date  TEXT NOT NULL,
+    row_count      INTEGER NOT NULL,
+    PRIMARY KEY (relation_type, subject_code, snapshot_date)
+);
+CREATE INDEX IF NOT EXISTS idx_rs_latest
+    ON relation_snapshots(relation_type, subject_code, snapshot_date);
 """
 
 
 class SectorStore:
-    """三表读写；可指向任意 SQLite 库文件（monitor 沿用 sector_attribution.db）。"""
+    """权威关系快照读写；可指向任意 SQLite 库文件。"""
 
     def __init__(self, db_path: str, busy_timeout_ms: int = 5000):
         self.db_path = db_path
@@ -98,7 +108,7 @@ class SectorStore:
     def replace_concept_dict(self, boards: List[Dict[str, str]],
                              migrate_hook: Optional[MigrateHook] = None) -> Dict:
         """
-        以枚举结果为准全量替换板块字典 + 级联清理 concept_members（同事务）。
+        以枚举结果为准全量替换板块字典 + 级联清理关系数据（同事务）。
         watched 等消费方关联表的迁移由 migrate_hook 在同一事务内完成（可空）。
         :param boards: [{"concept_code", "concept_name", "category", ...}]
         :return: {added, removed, total, migrated, dropped_watched}
@@ -133,6 +143,16 @@ class SectorStore:
             if dead_codes:
                 ph = ",".join("?" * len(dead_codes))
                 conn.execute(f"DELETE FROM concept_members WHERE concept_code IN ({ph})", dead_codes)
+                conn.execute(
+                    f"DELETE FROM stock_concept_map WHERE concept_code IN ({ph})",
+                    dead_codes,
+                )
+                conn.execute(
+                    f"DELETE FROM relation_snapshots "
+                    f"WHERE relation_type = 'concept_members' "
+                    f"AND subject_code IN ({ph})",
+                    dead_codes,
+                )
 
         return {
             "added": len(added_codes),
@@ -152,26 +172,76 @@ class SectorStore:
     def get_all_member_stock_codes(self) -> List[str]:
         """
         从成分股表反查全部 A 股股票代码（全市场股票池）。
-        取最新一份快照，避免历史重复。只返回 A 股（沪深北），过滤海外代码。
+        按每个概念各自的最新快照汇总。只返回 A 股（沪深北），过滤海外代码。
         """
         with self._connect() as conn:
             cursor = conn.execute("""
-                SELECT DISTINCT stock_code FROM concept_members
-                WHERE member_date = (SELECT MAX(member_date) FROM concept_members)
-                  AND (stock_code LIKE '%.SH' OR stock_code LIKE '%.SZ' OR stock_code LIKE '%.BJ')
+                WITH concepts AS (
+                    SELECT DISTINCT concept_code FROM concept_members
+                    UNION
+                    SELECT subject_code FROM relation_snapshots
+                    WHERE relation_type = 'concept_members'
+                ), latest AS (
+                    SELECT concept_code,
+                           (SELECT MAX(snapshot_date) FROM (
+                               SELECT snapshot_date
+                               FROM relation_snapshots
+                               WHERE relation_type = 'concept_members'
+                                 AND subject_code = concepts.concept_code
+                               UNION ALL
+                               SELECT member_date
+                               FROM concept_members
+                               WHERE concept_code = concepts.concept_code
+                           )) AS member_date
+                    FROM concepts
+                )
+                SELECT DISTINCT cm.stock_code
+                FROM concept_members cm
+                JOIN latest l
+                  ON cm.concept_code = l.concept_code
+                 AND cm.member_date = l.member_date
+                WHERE (cm.stock_code LIKE '%.SH'
+                    OR cm.stock_code LIKE '%.SZ'
+                    OR cm.stock_code LIKE '%.BJ')
+                ORDER BY cm.stock_code
             """)
             return [row["stock_code"] for row in cursor.fetchall()]
 
     def get_all_mapped_stock_codes(self) -> List[str]:
         """
-        获取 stock_concept_map 中有概念映射的 A 股独立股票代码（取最新快照）。
+        获取 stock_concept_map 中有标签映射的 A 股独立股票代码（按股票取最新快照）。
         只返回 A 股（沪深北）。
         """
         with self._connect() as conn:
             cursor = conn.execute("""
-                SELECT DISTINCT stock_code FROM stock_concept_map
-                WHERE map_date = (SELECT MAX(map_date) FROM stock_concept_map)
-                  AND (stock_code LIKE '%.SH' OR stock_code LIKE '%.SZ' OR stock_code LIKE '%.BJ')
+                WITH stocks AS (
+                    SELECT DISTINCT stock_code FROM stock_concept_map
+                    UNION
+                    SELECT subject_code FROM relation_snapshots
+                    WHERE relation_type = 'stock_concepts'
+                ), latest AS (
+                    SELECT stock_code,
+                           (SELECT MAX(snapshot_date) FROM (
+                               SELECT snapshot_date
+                               FROM relation_snapshots
+                               WHERE relation_type = 'stock_concepts'
+                                 AND subject_code = stocks.stock_code
+                               UNION ALL
+                               SELECT map_date
+                               FROM stock_concept_map
+                               WHERE stock_code = stocks.stock_code
+                           )) AS map_date
+                    FROM stocks
+                )
+                SELECT DISTINCT scm.stock_code
+                FROM stock_concept_map scm
+                JOIN latest l
+                  ON scm.stock_code = l.stock_code
+                 AND scm.map_date = l.map_date
+                WHERE (scm.stock_code LIKE '%.SH'
+                    OR scm.stock_code LIKE '%.SZ'
+                    OR scm.stock_code LIKE '%.BJ')
+                ORDER BY scm.stock_code
             """)
             return [row["stock_code"] for row in cursor.fetchall()]
 
@@ -188,12 +258,16 @@ class SectorStore:
     # ========== 个股-概念映射操作 ==========
     def save_stock_concept_map(self, mappings: Dict[str, List[Dict[str, str]]], map_date: str):
         """
-        保存个股-概念映射
+        以完整集合语义保存个股-概念标签快照
         :param mappings: {stock_code: [{concept_name, concept_code}, ...]}
         :param map_date: 映射日期
         """
         with self._connect() as conn:
             for stock_code, concepts in mappings.items():
+                conn.execute("""
+                    DELETE FROM stock_concept_map
+                    WHERE stock_code = ? AND map_date = ?
+                """, (stock_code, map_date))
                 # 等权分配
                 weight = 1.0 / len(concepts) if concepts else 1.0
                 for concept in concepts:
@@ -202,11 +276,16 @@ class SectorStore:
                         (stock_code, concept_code, map_date, weight)
                         VALUES (?, ?, ?, ?)
                     """, (stock_code, concept["concept_code"], map_date, weight))
+                conn.execute("""
+                    INSERT OR REPLACE INTO relation_snapshots
+                    (relation_type, subject_code, snapshot_date, row_count)
+                    VALUES ('stock_concepts', ?, ?, ?)
+                """, (stock_code, map_date, len(concepts)))
 
     def get_stock_concepts(self, stock_code: str, map_date: str = None) -> List[Dict]:
         """
         获取某个股的概念映射
-        :param map_date: 映射快照日期；不传则取最新一份（永久缓存语义）
+        :param map_date: 映射快照日期；不传则取该股票最新已发布快照
         """
         with self._connect() as conn:
             if map_date is None:
@@ -215,9 +294,17 @@ class SectorStore:
                     FROM stock_concept_map scm
                     JOIN ths_concept_dict tcd ON scm.concept_code = tcd.concept_code
                     WHERE scm.stock_code = ? AND scm.map_date = (
-                        SELECT MAX(map_date) FROM stock_concept_map WHERE stock_code = ?
+                        SELECT MAX(snapshot_date) FROM (
+                            SELECT snapshot_date
+                            FROM relation_snapshots
+                            WHERE relation_type = 'stock_concepts'
+                              AND subject_code = ?
+                            UNION ALL
+                            SELECT map_date
+                            FROM stock_concept_map WHERE stock_code = ?
+                        )
                     )
-                """, (stock_code, stock_code))
+                """, (stock_code, stock_code, stock_code))
             else:
                 cursor = conn.execute("""
                     SELECT scm.concept_code, tcd.concept_name, scm.weight
@@ -230,30 +317,93 @@ class SectorStore:
                 for row in cursor.fetchall()
             ]
 
+    def get_stock_memberships(self, stock_code: str,
+                              member_date: str = None) -> List[Dict]:
+        """从 concept_members 权威快照反查个股所属板块。"""
+        with self._connect() as conn:
+            if member_date is None:
+                cursor = conn.execute("""
+                    WITH latest AS (
+                        SELECT cm.concept_code,
+                               (SELECT MAX(snapshot_date) FROM (
+                                   SELECT rs.snapshot_date
+                                   FROM relation_snapshots rs
+                                   WHERE rs.relation_type = 'concept_members'
+                                     AND rs.subject_code = cm.concept_code
+                                   UNION ALL
+                                   SELECT cm2.member_date
+                                   FROM concept_members cm2
+                                   WHERE cm2.concept_code = cm.concept_code
+                               )) AS member_date
+                        FROM concept_members cm
+                        GROUP BY cm.concept_code
+                    )
+                    SELECT cm.concept_code, tcd.concept_name
+                    FROM concept_members cm
+                    JOIN latest l
+                      ON cm.concept_code = l.concept_code
+                     AND cm.member_date = l.member_date
+                    JOIN ths_concept_dict tcd
+                      ON cm.concept_code = tcd.concept_code
+                    WHERE cm.stock_code = ?
+                    ORDER BY cm.concept_code
+                """, (stock_code,))
+            else:
+                cursor = conn.execute("""
+                    SELECT cm.concept_code, tcd.concept_name
+                    FROM concept_members cm
+                    JOIN ths_concept_dict tcd
+                      ON cm.concept_code = tcd.concept_code
+                    WHERE cm.stock_code = ? AND cm.member_date = ?
+                    ORDER BY cm.concept_code
+                """, (stock_code, member_date))
+            return [
+                {"concept_code": row["concept_code"],
+                 "concept_name": row["concept_name"]}
+                for row in cursor.fetchall()
+            ]
+
     # ========== 概念成分股操作 ==========
     def save_concept_members(self, concept_code: str, members: List[Dict], member_date: str):
-        """保存概念板块成分股"""
+        """以完整集合语义保存概念板块成分股快照。"""
         with self._connect() as conn:
+            conn.execute("""
+                DELETE FROM concept_members
+                WHERE concept_code = ? AND member_date = ?
+            """, (concept_code, member_date))
             for m in members:
                 conn.execute("""
                     INSERT OR REPLACE INTO concept_members
                     (concept_code, stock_code, stock_name, member_date)
                     VALUES (?, ?, ?, ?)
                 """, (concept_code, m.get("stock_code"), m.get("stock_name", ""), member_date))
+            conn.execute("""
+                INSERT OR REPLACE INTO relation_snapshots
+                (relation_type, subject_code, snapshot_date, row_count)
+                VALUES ('concept_members', ?, ?, ?)
+            """, (concept_code, member_date, len(members)))
 
     def get_concept_members(self, concept_code: str, member_date: str = None) -> List[Dict]:
         """
         获取概念板块成分股列表
-        :param member_date: 成分股快照日期；不传则取最新一份（永久缓存语义）
+        :param member_date: 成分股快照日期；不传则取该概念最新已发布快照
         """
         with self._connect() as conn:
             if member_date is None:
                 cursor = conn.execute("""
                     SELECT stock_code, stock_name FROM concept_members
                     WHERE concept_code = ? AND member_date = (
-                        SELECT MAX(member_date) FROM concept_members WHERE concept_code = ?
+                        SELECT MAX(snapshot_date) FROM (
+                            SELECT snapshot_date
+                            FROM relation_snapshots
+                            WHERE relation_type = 'concept_members'
+                              AND subject_code = ?
+                            UNION ALL
+                            SELECT member_date
+                            FROM concept_members WHERE concept_code = ?
+                        )
                     )
-                """, (concept_code, concept_code))
+                """, (concept_code, concept_code, concept_code))
             else:
                 cursor = conn.execute("""
                     SELECT stock_code, stock_name FROM concept_members
@@ -271,10 +421,20 @@ class SectorStore:
         placeholders = ",".join("?" for _ in concept_codes)
         sql = f"""
             WITH latest AS (
-                SELECT concept_code, MAX(member_date) AS member_date
-                FROM concept_members
-                WHERE concept_code IN ({placeholders})
-                GROUP BY concept_code
+                SELECT cm.concept_code,
+                       (SELECT MAX(snapshot_date) FROM (
+                           SELECT rs.snapshot_date
+                           FROM relation_snapshots rs
+                           WHERE rs.relation_type = 'concept_members'
+                             AND rs.subject_code = cm.concept_code
+                           UNION ALL
+                           SELECT cm2.member_date
+                           FROM concept_members cm2
+                           WHERE cm2.concept_code = cm.concept_code
+                       )) AS member_date
+                FROM concept_members cm
+                WHERE cm.concept_code IN ({placeholders})
+                GROUP BY cm.concept_code
             )
             SELECT cm.concept_code, cm.stock_code, cm.stock_name
             FROM concept_members cm
@@ -283,7 +443,7 @@ class SectorStore:
              AND cm.member_date = l.member_date
             ORDER BY cm.concept_code, cm.stock_code
         """
-        result: Dict[str, List[Dict]] = {}
+        result: Dict[str, List[Dict]] = {code: [] for code in concept_codes}
         with self._connect() as conn:
             for row in conn.execute(sql, concept_codes):
                 result.setdefault(row["concept_code"], []).append({
@@ -302,7 +462,14 @@ class SectorStore:
     def get_latest_member_date(self) -> str:
         """成分股表最新快照日期，空表返回空串（原 kg_sources._latest_snapshot_date 裸 SQL）。"""
         with self._connect() as conn:
-            row = conn.execute("SELECT MAX(member_date) FROM concept_members").fetchone()
+            row = conn.execute("""
+                SELECT MAX(snapshot_date) FROM (
+                    SELECT snapshot_date FROM relation_snapshots
+                    WHERE relation_type = 'concept_members'
+                    UNION ALL
+                    SELECT member_date FROM concept_members
+                )
+            """).fetchone()
             return row[0] or ""
 
     def get_latest_member_stock_names(self) -> Dict[str, str]:
@@ -311,7 +478,12 @@ class SectorStore:
         with self._connect() as conn:
             for row in conn.execute(
                 "SELECT stock_code, stock_name FROM concept_members "
-                "WHERE member_date = (SELECT MAX(member_date) FROM concept_members)"
+                "WHERE member_date = ("
+                "SELECT MAX(snapshot_date) FROM ("
+                "SELECT snapshot_date FROM relation_snapshots "
+                " WHERE relation_type = 'concept_members' "
+                "UNION ALL SELECT member_date FROM concept_members)"
+                ")"
             ):
                 if row["stock_code"] not in names:
                     names[row["stock_code"]] = row["stock_name"]
@@ -327,7 +499,14 @@ class SectorStore:
         """最新快照全体成分（原 theme_catalyst.theme_members_and_size 裸 SQL）。"""
         result: Dict[str, List[Tuple[str, str]]] = {}
         with self._connect() as conn:
-            snap = conn.execute("SELECT MAX(member_date) FROM concept_members").fetchone()[0] or ""
+            snap = conn.execute("""
+                SELECT MAX(snapshot_date) FROM (
+                    SELECT snapshot_date FROM relation_snapshots
+                    WHERE relation_type = 'concept_members'
+                    UNION ALL
+                    SELECT member_date FROM concept_members
+                )
+            """).fetchone()[0] or ""
             if not snap:
                 return snap, result
             for row in conn.execute(

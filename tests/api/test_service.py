@@ -43,11 +43,34 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(body["count"], 1)
         self.assertEqual(body["members"][0]["stock_code"], "600519.SH")
 
+    def test_stock_concepts_endpoint_uses_authoritative_memberships(self):
+        r = self.client.get("/stocks/600519.SH/concepts")
+
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {
+            "stock_code": "600519.SH",
+            "count": 1,
+            "concepts": [
+                {"concept_code": "885001.TI", "concept_name": "人工智能"},
+            ],
+        })
+
     def test_sync_members_endpoint_triggers_sync(self):
-        with mock.patch.object(self.hub.sync, "sync_concept_members", return_value=3) as s:
+        report = {
+            "ok": False,
+            "member_date": "20260917",
+            "requested_concepts": 2,
+            "successful_concepts": 1,
+            "failed_concepts": 1,
+            "failed_codes": ["885002.TI"],
+            "saved_records": 3,
+        }
+        with mock.patch.object(
+                self.hub.sync, "sync_concept_members_report",
+                return_value=report) as s:
             r = self.client.post("/sync/members", json={"concept_codes": ["885001.TI"], "date": "20260917"})
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json(), {"ok": True, "saved_records": 3})
+        self.assertEqual(r.json(), report)
         s.assert_called_once_with(["885001.TI"], "20260917")
 
 

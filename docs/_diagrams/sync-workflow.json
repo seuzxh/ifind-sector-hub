@@ -27,7 +27,7 @@
           "api2",
           "members_table"
         ],
-        "note": "ThreadPoolExecutor 并发拉取，单概念失败不中断，进度计数带锁。"
+        "note": "ThreadPoolExecutor 并发拉取；响应先校验，失败不发布，结构化报告汇总失败码。"
       },
       {
         "id": "universe-loop",
@@ -58,7 +58,7 @@
     },
     {
       "id": "storage",
-      "label": "SQLite 三表"
+      "label": "SQLite 权威快照"
     }
   ],
   "phases": [
@@ -128,7 +128,7 @@
       "col": 5,
       "type": "external",
       "label": "返回统计",
-      "sublabel": "saved_records / 新增码数",
+      "sublabel": "成功/失败数 · failed_codes",
       "width": 140
     },
     {
@@ -146,8 +146,8 @@
       "col": 2,
       "type": "backend",
       "label": "成分股并发拉取",
-      "sublabel": "ThreadPoolExecutor ×8",
-      "tag": "失败概念不中断",
+      "sublabel": "拉取 → 结构校验 → 发布",
+      "tag": "失败不覆盖旧快照",
       "width": 150
     },
     {
@@ -211,7 +211,7 @@
       "col": 2,
       "type": "database",
       "label": "concept_members",
-      "sublabel": "成分股表",
+      "sublabel": "权威关系 + 快照元数据",
       "width": 150
     },
     {
@@ -313,17 +313,17 @@
       "title": "并发内核",
       "items": [
         "ThreadPoolExecutor 默认 8 并发逐概念拉接口2",
-        "单概念异常只记 WARN 不中断，失败码列表末尾汇总",
-        "进度计数器加锁，每 100 个概念打印一次进度"
+        "业务错误、缺表、列错位与重复代码均拒绝发布",
+        "单概念失败不中断；同步报告返回 failed_codes"
       ]
     },
     {
       "dot": "emerald",
-      "title": "三表落库",
+      "title": "完整快照落库",
       "items": [
-        "INSERT OR REPLACE 幂等写入，同日重跑不产生重复",
-        "字典/映射表日期 YYYY-MM-DD，成分股表 YYYYMMDD（沿用原语义）",
-        "读方法不传日期取 MAX(date) 最新快照"
+        "同一主体+日期先删后插，同日重跑不会残留退出关系",
+        "relation_snapshots 记录零行快照，区分成功为空与未同步",
+        "字典/映射表日期 YYYY-MM-DD，成分股表 YYYYMMDD（沿用原语义）"
       ]
     },
     {

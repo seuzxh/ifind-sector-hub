@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "三表数据模型",
+    "title": "权威关系数据模型",
     "locale": "zh-CN",
     "quality_profile": "showcase",
     "repository": {
@@ -16,18 +16,19 @@
         "focus": [
           "dict",
           "members",
-          "map"
+          "map",
+          "snapshots"
         ],
-        "note": "两表经 concept_code 逻辑关联字典；replace 删除概念时级联清理。"
+        "note": "领域关系经 concept_code 关联字典；下线概念级联清理成分、标签与快照元数据。"
       },
       {
         "id": "join-read",
-        "label": "联表读路径",
+        "label": "权威双向查询",
         "focus": [
-          "map",
+          "members",
           "dict"
         ],
-        "note": "get_stock_concepts 联表字典，直接返回名称与权重。"
+        "note": "concept_members 同时支撑概念到股票与股票到概念；字典补齐概念名称。"
       },
       {
         "id": "pool-derivation",
@@ -106,6 +107,28 @@
           "label": "CREATE TABLE"
         }
       ]
+    },
+    {
+      "id": "snapshots",
+      "type": "database",
+      "label": "relation_snapshots",
+      "sublabel": "PK (type, subject, date)",
+      "tag": "零行快照 · row_count",
+      "pos": [
+        800,
+        220
+      ],
+      "size": [
+        250,
+        80
+      ],
+      "sources": [
+        {
+          "path": "src/ifind_sector_hub/repositories/storage.py",
+          "line": 46,
+          "label": "CREATE TABLE"
+        }
+      ]
     }
   ],
   "boundaries": [
@@ -115,7 +138,8 @@
       "wraps": [
         "dict",
         "members",
-        "map"
+        "map",
+        "snapshots"
       ]
     }
   ],
@@ -148,6 +172,25 @@
         565,
         184
       ]
+    },
+    {
+      "id": "snapshot-members",
+      "from": "snapshots",
+      "to": "members",
+      "label": "记录已发布日期（含空集合）",
+      "variant": "emphasis",
+      "fromSide": "left",
+      "toSide": "right",
+      "labelDy": 7
+    },
+    {
+      "id": "snapshot-map",
+      "from": "snapshots",
+      "to": "map",
+      "label": "标签快照版本",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "right"
     }
   ],
   "cards": [
@@ -155,25 +198,25 @@
       "dot": "emerald",
       "title": "主键与日期",
       "items": [
-        "三表均以业务键复合主键，INSERT OR REPLACE 天然幂等",
+        "关系表按主体+日期先删后插，保证同日完整集合替换",
         "字典/映射表日期 YYYY-MM-DD，成分股表 YYYYMMDD（沿用 monitor 原语义）",
-        "历史不清理：每次同步追加新日期快照"
+        "历史日期不清理；relation_snapshots 保存零行快照"
       ]
     },
     {
       "dot": "cyan",
       "title": "快照读",
       "items": [
-        "不传日期取 MAX(date) 最新快照再过滤",
+        "最新日期取元数据与领域表的并集 MAX，兼容旧写入方",
         "get_concept_members_map 单连接批量读多概念成分",
-        "get_stock_concepts 联表字典，返回 code+name+weight"
+        "get_stock_memberships 从 concept_members 权威反查"
       ]
     },
     {
       "dot": "amber",
       "title": "级联与钩子",
       "items": [
-        "replace_concept_dict 删除下线概念时级联清理两表关联行",
+        "replace_concept_dict 删除下线概念时级联清理关系与快照元数据",
         "migrate_hook 在同一事务/同一连接内迁移消费方关联表",
         "更名概念同步更新字典名称"
       ]
@@ -182,9 +225,9 @@
       "dot": "violet",
       "title": "派生关系",
       "items": [
-        "get_all_member_stock_codes 从成分股最新快照反查全市场股票池",
+        "get_all_member_stock_codes 汇总各概念自身最新快照",
         "init_concept_universe 用股票池逐批扫接口1，反向发现新概念码后写映射",
-        "两表索引 idx_cm_concept / idx_scm_concept 支撑按概念码查询"
+        "concept_members 是板块与成分股关系的唯一权威来源"
       ]
     }
   ]

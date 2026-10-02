@@ -45,7 +45,14 @@ class IFindClient:
                         self.headers["access_token"])
                     continue
                 resp.raise_for_status()
-                return resp.json()
+                data = resp.json()
+                if not isinstance(data, dict):
+                    raise RuntimeError("iFinD API response is not a JSON object")
+                errorcode = data.get("errorcode")
+                if errorcode not in (0, None):
+                    errmsg = data.get("errmsg") or data.get("message") or "unknown error"
+                    raise RuntimeError(f"iFinD API error {errorcode}: {errmsg}")
+                return data
             except requests.exceptions.RequestException as e:
                 if attempt == self.max_retries - 1:
                     raise
@@ -365,9 +372,12 @@ class IFindClient:
                 for item in resp["tables"]:
                     stock_code = item.get("thscode", "")
                     table = item.get("table", {})
+                    if not stock_code:
+                        continue
 
                     concept_names = table.get("ths_the_ths_concept_index_stock", [])
                     concept_codes_list = table.get("ths_the_ths_concept_index_code_stock", [])
+                    result[stock_code] = []
 
                     if concept_names and len(concept_names) > 0:
                         name_str = concept_names[0]

@@ -7,7 +7,8 @@
                               access_token=..., refresh_token=...,
                               token_store=FileTokenStore("data/token.json")))
     hub.client.smart_pick_stocks("...")       # 数据源
-    hub.store.get_concept_members_map([...])  # 三表快照读
+    hub.store.get_concept_members_map([...])  # 概念到成分股权威快照
+    hub.store.get_stock_memberships(...)      # 同一快照反查股票所属概念
     hub.sync.sync_concept_members([...], "20260917")
 """
 

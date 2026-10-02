@@ -36,7 +36,7 @@
                                       │   TokenStore / FileTokenStore ──► token.json (flock)
                                       │
                                       ├─► SectorSync（并发编排，复用 client + store）
-                                      └─► SectorStore ──► SQLite 三表（快照语义）</code></pre>
+                                      └─► SectorStore ──► SQLite 权威关系快照</code></pre>
 <p>
   依赖方向单向：<code>sync → client + store + codes</code>，<code>client → tokens</code>，<code>hub → 全部</code>，<code>service → hub</code>。
   <code>IFindClient</code> 完全配置注入（base_url / timeout / max_retries / batch_size 构造传入），
@@ -146,9 +146,9 @@
   实测 2026-09 共 <b>710 个板块动态可枚举</b>（概念 390 / 二级 90 / 三级 230），替代硬编码 SECTOR_POOL_CODES。
 </p>
 
-<h2>4. 三表存储与快照语义 <span class="badge violet">配数据模型图</span></h2>
+<h2>4. 权威关系存储与快照语义 <span class="badge violet">配数据模型图</span></h2>
 <h3>4.1 数据模型</h3>
-<p>三表结构与相互依赖（主键、<code>concept_code</code> 逻辑外键、读时 JOIN、级联清理、股票池派生）的可视化见 <a href="data-model.html">三表数据模型图</a>，表结构如下：</p>
+<p>三张领域表与快照元数据的相互依赖可视化见 <a href="data-model.html">权威关系数据模型图</a>。<code>concept_members</code> 是板块与成分股关系的唯一权威来源，正向查询与按股票反查均基于该表。</p>
 <table>
   <tr><th>表</th><th>主键</th><th>日期字段</th><th>说明</th></tr>
   <tr>
@@ -167,20 +167,27 @@
     <td><code>stock_concept_map</code></td>
     <td>(stock_code, concept_code, map_date)</td>
     <td><code>map_date</code>（YYYY-MM-DD）</td>
-    <td>个股-概念映射；写入时<b>等权分配</b> weight = 1/N（N 为该股概念数，DDL 的 <code>DEFAULT 1.0</code> 仅兜底）；索引 <code>idx_scm_concept</code>。</td>
+    <td>接口 1 标签/权重缓存；写入时<b>等权分配</b> weight = 1/N。它不是成分关系真相源。</td>
+  </tr>
+  <tr>
+    <td><code>relation_snapshots</code></td>
+    <td>(relation_type, subject_code, snapshot_date)</td>
+    <td><code>snapshot_date</code></td>
+    <td>内部快照元数据；记录行数为 0 的有效快照，使“成功为空”与“尚未同步”可区分。</td>
   </tr>
 </table>
-<h3>4.2 MAX(date) 快照语义</h3>
+<h3>4.2 完整快照与最新版本语义</h3>
 <p>
-  所有读方法（<code>get_concept_members</code> / <code>get_concept_members_map</code> / <code>get_stock_concepts</code> 等）
-  不传日期时，子查询取 <code>MAX(date)</code> 作为"最新快照"再过滤——同一天多次同步或历史数据并存时，
-  读到的始终是最新一份，且<b>历史不清理</b>（永久缓存语义，自 monitor 原样迁移）。
+  同一主体、同一日期的写入是完整集合替换，不会残留已退出关系；空集合也写入元数据并成为最新快照。
+  读方法不传日期时优先取元数据中的最新日期，旧库尚无元数据时回退到领域表的 <code>MAX(date)</code>。
+  历史日期不清理。
   全市场股票池（<code>get_all_member_stock_codes</code> / <code>get_all_mapped_stock_codes</code>）同样基于最新快照去重，SQL 内联 <code>LIKE '%.SH'|'.SZ'|'.BJ'</code> 只返回沪深北代码。
 </p>
 <h3>4.3 读访问器族与返回增强</h3>
 <ul>
   <li><b>批量读</b>：<code>get_concept_members_map(codes)</code> 单连接一次 SQL 取多个概念的最新成分股（按 concept_code / stock_code 排序），避免逐概念建连接——同步与消费方的热路径。</li>
-  <li><b>JOIN 增强</b>：<code>get_stock_concepts(stock_code)</code> 联表 <code>ths_concept_dict</code>，直接返回 <code>concept_code + concept_name + weight</code> 三元组，消费方无需二次查名。</li>
+  <li><b>权威反查</b>：<code>get_stock_memberships(stock_code)</code> 从 <code>concept_members</code> 反查并联表补名称；HTTP 的股票到概念端点使用该方法。</li>
+  <li><b>标签缓存读</b>：<code>get_stock_concepts(stock_code)</code> 读取接口 1 的 <code>stock_concept_map</code>，返回名称与权重，仅用于需要接口 1 标签语义的场景。</li>
   <li><b>五个常用只读访问器</b>（L296-339，monitor 各处裸 SQL 的统一入口）：<code>get_concept_names</code>、<code>get_latest_member_date</code>、<code>get_latest_member_stock_names</code>、<code>get_all_member_stock_names</code>（全历史 MAX(stock_name)）、<code>get_latest_members_snapshot</code>（最新快照全体成分，返回 (日期, {概念: [(代码, 名称)]})）。</li>
 </ul>
 <h3>4.4 连接与事务</h3>
@@ -189,7 +196,7 @@
   正常路径 commit、异常路径 rollback 后抛出——多线程并发入库（同步内核 8 线程）与消费方同库读写共存时靠 busy_timeout 阻塞等待而非报错。
 </p>
 <h3>4.5 幂等写入</h3>
-<p>三表写入统一 <code>INSERT OR REPLACE</code>，以主键天然幂等——同日重跑同步管线不产生重复行。</p>
+<p>关系表按“主体 + 日期”先删后插并在同一事务登记快照元数据，保证同日重跑是完整替换，也能持久化空集合。</p>
 
 <h2>5. replace 级联与同事务迁移钩子</h2>
 <p>
@@ -205,7 +212,8 @@
 <h2>6. 同步编排 <span class="badge violet">详见流程图</span></h2>
 <p>完整管线见 <a href="sync-workflow.html">板块数据同步编排流程图</a>。核心决策：</p>
 <ul>
-  <li><b>并发内核</b>：<code>ThreadPoolExecutor</code>（默认 8 并发）逐概念拉接口2；<b>单概念失败只记 WARN 不中断</b>，失败码在末尾汇总打印；进度计数器加锁，每 100 个概念输出一次进度。</li>
+  <li><b>并发内核</b>：<code>ThreadPoolExecutor</code>（默认 8 并发）逐概念拉接口2；单概念失败不中断且不会发布快照，<code>sync_concept_members_report</code> 返回成功/失败数量、失败码与保存条数。</li>
+  <li><b>响应闸门</b>：HTTP 成功但 iFinD <code>errorcode</code> 非零、缺少 tables/table、字段非列表或代码/名称列长度不一致均视为失败；结构完整的空列表才是有效空快照。</li>
   <li><b>A股过滤前置</b>：字典初始化先过滤海外概念（861/864/865/871/875 前缀）；成分股入库可选 <code>stock_filter</code>（默认用 <code>is_a_share_code</code> 过滤非沪深北代码）。</li>
   <li><b>全集补全回路</b>：<code>init_concept_universe</code> 从成分股表最新快照反查全市场股票池 → 接口1 逐批扫描每只股票的概念 → 反向收集字典未覆盖的新概念码 → 接口5 补字典、接口2 补成分股。支持 <code>skip</code> 开关（原"板块池启用仅 884"语义）与调用方口径的 <code>existing_codes</code>。</li>
   <li><b>观察池刷新</b>：<code>refresh_dict_and_members</code> 对给定码集"接口5 刷字典 + 接口2 并发刷成分股"一步完成。</li>
@@ -240,8 +248,8 @@
   <tr><th>端点</th><th>调用链</th></tr>
   <tr><td><code>GET /concepts</code></td><td><code>store.get_concept_names</code></td></tr>
   <tr><td><code>GET /concepts/{code}/members</code></td><td><code>store.get_concept_members</code>（MAX(date) 快照）</td></tr>
-  <tr><td><code>GET /stocks/{code}/concepts</code></td><td><code>store.get_stock_concepts</code>（JOIN 字典带名称）</td></tr>
-  <tr><td><code>POST /sync/members</code></td><td><code>sync.sync_concept_members</code> → 8 并发 { <code>client.get_concept_members</code> → <code>store.save_concept_members</code> }</td></tr>
+  <tr><td><code>GET /stocks/{code}/concepts</code></td><td><code>store.get_stock_memberships</code>（从权威成分表反查）</td></tr>
+  <tr><td><code>POST /sync/members</code></td><td><code>sync.sync_concept_members_report</code> → 校验响应 → 仅发布成功快照并返回失败码</td></tr>
 </table>
 
 <h3>7.4 monitor 裸 SQL → 访问器迁移映射</h3>
@@ -255,14 +263,14 @@
   <tr><td><code>get_latest_members_snapshot</code></td><td>theme_catalyst.theme_members_and_size</td></tr>
 </table>
 
-<h3>7.5 测试覆盖映射（33 tests）</h3>
+<h3>7.5 测试覆盖映射</h3>
 <table>
   <tr><th>测试文件</th><th>数量</th><th>覆盖点</th></tr>
-  <tr><td><code>test_client.py</code></td><td>10</td><td>401 刷新后仅重试一次、指数退避、批量分片、smart_pick 解析</td></tr>
-  <tr><td><code>test_storage.py</code></td><td>6</td><td>快照读、幂等写、replace 级联与钩子事务性、访问器</td></tr>
-  <tr><td><code>test_sync.py</code></td><td>6</td><td>并发内核失败不中断、全集补全回路、观察池刷新</td></tr>
+  <tr><td><code>test_client.py</code></td><td>13</td><td>401 刷新、业务错误/畸形 JSON、指数退避、批量分片、空标签与 smart_pick 解析</td></tr>
+  <tr><td><code>test_storage.py</code></td><td>16</td><td>完整/空快照、权威双向查询、旧库与旧写入方兼容、replace 级联与访问器</td></tr>
+  <tr><td><code>test_sync.py</code></td><td>10</td><td>失败不发布、空快照、响应结构校验、全集补全与观察池刷新</td></tr>
   <tr><td><code>test_tokens.py</code></td><td>6</td><td>进程内双检命中、REFRESH_TOKEN 轮换落盘、flock 跨进程双检</td></tr>
-  <tr><td><code>test_service.py</code></td><td>3</td><td>4 个端点（含同步触发）</td></tr>
+  <tr><td><code>test_service.py</code></td><td>4</td><td>4 个端点（含权威反查与结构化同步报告）</td></tr>
   <tr><td><code>test_codes.py</code></td><td>2</td><td>个股后缀 / 概念前缀白名单</td></tr>
 </table>
 <p>外部 HTTP 全部以桩替换，测试离线可跑（标准库 <code>unittest</code>，无第三方测试依赖）：<code>python -m unittest discover -s tests</code>。</p>
@@ -300,7 +308,7 @@ app.include_router(build_router(hub))   # 挂到任一 FastAPI 应用</code></pr
   <tr><td><code>/concepts</code></td><td>GET</td><td>概念字典全量（code → name）。</td></tr>
   <tr><td><code>/concepts/{concept_code}/members</code></td><td>GET</td><td>概念成分股，可选 <code>?date=</code>（缺省最新快照）。</td></tr>
   <tr><td><code>/stocks/{stock_code}/concepts</code></td><td>GET</td><td>个股所属概念反查，可选 <code>?date=</code>。</td></tr>
-  <tr><td><code>/sync/members</code></td><td>POST</td><td>触发成分股同步（概念码列表 + 日期），返回入库条数。</td></tr>
+  <tr><td><code>/sync/members</code></td><td>POST</td><td>触发成分股同步，返回 <code>ok</code>、成功/失败数量、<code>failed_codes</code> 与入库条数。</td></tr>
 </table>
 <p>本期<b>只交付不部署</b>；未安装 fastapi 时 import 该模块报 ImportError，不影响库核心。</p>
 
@@ -343,7 +351,7 @@ app.include_router(build_router(hub))   # 挂到任一 FastAPI 应用</code></pr
   <tr><td>9</td><td><code>yagni</code></td><td><code>members_progress_every</code> 配置无人设置</td><td>常量 100</td><td><code>__init__.py:43</code></td></tr>
   <tr><td>10</td><td><code>native</code></td><td><code>print</code> 日志（复审项：决策记录已接受为 monitor 运维兼容口径）</td><td><code>logging</code> + 前缀格式化</td><td><code>sync / tokens</code></td></tr>
 </table>
-<p>合计：约 <b>-210 行、-2 依赖、-1 运行时产物</b>。core 双检/flock、三表快照语义、import-linter 契约不在削减范围——其复杂度均有真实约束背书。</p>
+<p>合计：约 <b>-210 行、-2 依赖、-1 运行时产物</b>。core 双检/flock、权威关系快照语义、import-linter 契约不在削减范围——其复杂度均有真实约束背书。</p>
 
 </main>
 
