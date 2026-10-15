@@ -5,7 +5,6 @@
 失败概念不中断，进度计数带锁）。
 """
 
-import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
@@ -13,13 +12,14 @@ from typing import Callable, Dict, List, Optional
 from ..core.codes import is_a_share_code, is_a_share_concept
 
 
+_PROGRESS_EVERY = 100  # 进度打印步长（内部常量，无需配置化）
+
+
 class SectorSync:
-    def __init__(self, client, store,
-                 concurrency: int = 8, progress_every: int = 100):
+    def __init__(self, client, store, concurrency: int = 8):
         self.client = client
         self.store = store
         self.concurrency = concurrency
-        self.progress_every = progress_every
 
     # ---------- 单概念成分股（线程池 worker） ----------
     def _fetch_one_concept_members(self, concept_code: str, member_date: str,
@@ -79,7 +79,6 @@ class SectorSync:
         """同步成分股并返回逐批次结果；失败概念不会覆盖上一份快照。"""
         total = len(concept_codes)
         done_count = saved_records = success_count = 0
-        counter_lock = threading.Lock()
         failed_codes = []
 
         with ThreadPoolExecutor(max_workers=self.concurrency) as executor:
@@ -95,11 +94,10 @@ class SectorSync:
                     self.store.save_concept_members(code, members, member_date)
                     success_count += 1
                     saved_records += len(members)
-                with counter_lock:
-                    done_count += 1
-                    if done_count % self.progress_every == 0 or done_count == total:
-                        print(f"[UNIVERSE] 成分股进度 {done_count}/{total}"
-                              f"（成功 {success_count}，失败 {len(failed_codes)}，已入库 {saved_records} 条）")
+                done_count += 1
+                if done_count % _PROGRESS_EVERY == 0 or done_count == total:
+                    print(f"[UNIVERSE] 成分股进度 {done_count}/{total}"
+                          f"（成功 {success_count}，失败 {len(failed_codes)}，已入库 {saved_records} 条）")
 
         print(f"[UNIVERSE] 已保存共 {saved_records} 条成分股记录"
               f"（{total} 个概念中成功 {success_count} 个，失败 {len(failed_codes)} 个）")

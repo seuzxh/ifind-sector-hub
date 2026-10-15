@@ -105,20 +105,24 @@ class FileTokenStore(TokenStore):
         return d
 
     def _save(self, access_token: str, refresh_token: str, stale_token: str = None) -> str:
-        # fcntl 锁内跨进程双检：文件 token ≠ 本次刷新的旧 token 且非空 → 别的进程
-        # 刚刷过，采纳文件值；否则写入我们的刷新结果
-        lock_path = self.path + ".lock"
+        # fcntl 直接锁数据文件本身（"a+" 不截断）：锁内跨进程双检——
+        # 文件 token ≠ 本次刷新的旧 token 且非空 → 别的进程刚刷过，采纳文件值；否则写入
         os.makedirs(os.path.dirname(os.path.abspath(self.path)) or ".", exist_ok=True)
-        with open(lock_path, "w") as lf:
+        with open(self.path, "a+", encoding="utf-8") as lf:
             fcntl.flock(lf, fcntl.LOCK_EX)
             try:
-                cur = self._read()
-                if (stale_token and cur["access_token"]
-                        and cur["access_token"] != stale_token):
-                    self._access_token, self._refresh_token = (
-                        cur["access_token"], cur["refresh_token"])
-                    return cur["access_token"]
-                self._write(access_token, refresh_token)
+                lf.seek(0)
+                raw = lf.read().strip()
+                cur = json.loads(raw) if raw else {}
+                cur_at = cur.get("access_token", "")
+                if stale_token and cur_at and cur_at != stale_token:
+                    self._access_token, self._refresh_token = cur_at, cur.get("refresh_token", "")
+                    return cur_at
+                lf.seek(0)
+                lf.truncate()
+                lf.write(json.dumps({"access_token": access_token, "refresh_token": refresh_token,
+                                     "updated_at": datetime.datetime.now().isoformat(timespec="seconds")},
+                                    ensure_ascii=False))
                 self._access_token, self._refresh_token = access_token, refresh_token
                 return access_token
             finally:

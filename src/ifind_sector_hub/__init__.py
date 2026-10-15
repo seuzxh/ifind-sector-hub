@@ -41,7 +41,6 @@ class HubConfig:
     max_retries: int = 3
     batch_size: int = 100
     members_concurrency: int = 8
-    members_progress_every: int = 100
 
 
 class SectorHub:
@@ -59,5 +58,4 @@ class SectorHub:
                                   max_retries=cfg.max_retries, batch_size=cfg.batch_size)
         self.store = SectorStore(cfg.db_path)
         self.sync = SectorSync(self.client, self.store,
-                               concurrency=cfg.members_concurrency,
-                               progress_every=cfg.members_progress_every)
+                               concurrency=cfg.members_concurrency)

@@ -11,6 +11,13 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Callable, Dict, List, Optional, Tuple
 
+from ..core.codes import A_SHARE_SUFFIXES
+
+
+def _a_share_like(col: str) -> str:
+    """A股过滤条件片段（由后缀白名单生成，勿手写字面量）。"""
+    return " OR ".join(f"{col} LIKE '%{sfx}'" for sfx in A_SHARE_SUFFIXES)
+
 # 迁移钩子：同一事务/连接内被调用，返回 (migrated, dropped_watched)
 MigrateHook = Callable[[sqlite3.Connection, set, Dict[str, str], Dict[str, str]], tuple]
 
@@ -175,7 +182,7 @@ class SectorStore:
         按每个概念各自的最新快照汇总。只返回 A 股（沪深北），过滤海外代码。
         """
         with self._connect() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(f"""
                 WITH concepts AS (
                     SELECT DISTINCT concept_code FROM concept_members
                     UNION
@@ -200,9 +207,7 @@ class SectorStore:
                 JOIN latest l
                   ON cm.concept_code = l.concept_code
                  AND cm.member_date = l.member_date
-                WHERE (cm.stock_code LIKE '%.SH'
-                    OR cm.stock_code LIKE '%.SZ'
-                    OR cm.stock_code LIKE '%.BJ')
+                WHERE ({_a_share_like('cm.stock_code')})
                 ORDER BY cm.stock_code
             """)
             return [row["stock_code"] for row in cursor.fetchall()]
@@ -213,7 +218,7 @@ class SectorStore:
         只返回 A 股（沪深北）。
         """
         with self._connect() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(f"""
                 WITH stocks AS (
                     SELECT DISTINCT stock_code FROM stock_concept_map
                     UNION
@@ -238,9 +243,7 @@ class SectorStore:
                 JOIN latest l
                   ON scm.stock_code = l.stock_code
                  AND scm.map_date = l.map_date
-                WHERE (scm.stock_code LIKE '%.SH'
-                    OR scm.stock_code LIKE '%.SZ'
-                    OR scm.stock_code LIKE '%.BJ')
+                WHERE ({_a_share_like('scm.stock_code')})
                 ORDER BY scm.stock_code
             """)
             return [row["stock_code"] for row in cursor.fetchall()]
