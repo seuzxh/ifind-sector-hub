@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>行情缓存设计（P0） · ifind-sector-hub</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="inner">
+    <a class="brand" href="index.html"><span class="dot"></span>ifind-sector-hub</a>
+    <nav class="site-nav">
+      <a href="index.html">概览</a>
+      <a href="requirements.html">需求</a>
+      <a href="design.html">设计方案</a>
+      <a href="cache-design.html">缓存设计</a>
+      <a href="architecture.html">架构图</a>
+      <a href="data-model.html">数据模型</a>
+      <a href="sync-workflow.html">同步流程</a>
+      <a href="token-lifecycle.html">Token 时序</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<h1>行情缓存设计（P0）</h1>
+<p class="lead">目标：把本组件升级为 ifind 概念/行业板块的核心数据源——板块历史成分股与板块行情（日频/分钟频）落库缓存，读路径懒加载（库里有就不打接口，缺的只取缺失部分），配 FastAPI + Vue 看板查看与维护。</p>
+
+<div class="note">
+  <b>已确认的五项决策（2026-10-15）：</b>
+  ① 板块均为指数，行情<b>只存不复权</b>（无 CPS 版本维度，台账简化）；
+  ② <b>按需请求</b>，回溯下界近 5 年，同样按需；
+  ③ 看板 <b>FastAPI + Vue</b>；
+  ④ 存储先用 <b>SQLite</b>；
+  ⑤ 懒加载语义 <b>立即返回已有 + 后台补全</b>。
+</div>
+
+<h2>1. 总体架构</h2>
+<pre><code>消费方 / Vue 看板
+   │ get_daily(code, d0, d1) ── 立即返回已有 + 缺口清单
+   ▼
+services/quotation.py（read-through 核心）
+   ├─ repositories/quotation_repo.py ──► SQLite：行情表 + 覆盖台账 + 任务表
+   └─ 投递 fill_tasks（不阻塞）
+        ▲ 后台执行器（daemon 线程池）消费
+        └─ integrations/ifind/client.py：fetch_daily_bars / fetch_minute_bars（分片+解析）──► iFinD 接口3/4</code></pre>
+<p>
+  复用既有基建：token 生命周期（401 双检刷新）、指数退避重试、A 股过滤、<code>relation_snapshots</code>
+  的"发布台账 + 零行元数据"模式——本设计的覆盖台账（<code>quotation_coverage</code>）正是该模式在行情域的复制。
+</p>
+
+<h2>2. 数据模型（DDL）</h2>
+<pre><code>-- 日频行情（不复权指数）
+CREATE TABLE IF NOT EXISTS quotation_daily (
+    code          TEXT NOT NULL,     -- 板块指数代码，如 885001.TI
+    trade_date    TEXT NOT NULL,     -- YYYY-MM-DD
+    open REAL, high REAL, low REAL, close REAL,
+    volume REAL, amount REAL, change_ratio REAL, pre_close REAL,
+    PRIMARY KEY (code, trade_date)
+);
+
+-- 分钟频行情（1min bar；按 code 前两位可再按年分表，P2 视体量决定）
+CREATE TABLE IF NOT EXISTS quotation_minute (
+    code       TEXT NOT NULL,
+    bar_time   TEXT NOT NULL,        -- YYYY-MM-DD HH:MM
+    open REAL, high REAL, low REAL, close REAL, volume REAL,
+    PRIMARY KEY (code, bar_time)
+);
+
+-- 覆盖台账：完整性判定的唯一事实源（缺失 = 无行）
+CREATE TABLE IF NOT EXISTS quotation_coverage (
+    code        TEXT NOT NULL,
+    freq        TEXT NOT NULL,       -- '1d' | '1m'（1m 以"日"为覆盖单位）
+    trade_date  TEXT NOT NULL,
+    state       TEXT NOT NULL,       -- 'complete' | 'empty'（负缓存：确认无数据）
+    fetched_at  TEXT NOT NULL,
+    PRIMARY KEY (code, freq, trade_date)
+);
+
+-- 交易日历（周末/节假日不算缺口）
+CREATE TABLE IF NOT EXISTS trading_calendar (
+    trade_date TEXT PRIMARY KEY
+);
+
+-- 后台补全任务表（进程退出不丢，任一进程/看板触发即恢复消费）
+CREATE TABLE IF NOT EXISTS fill_tasks (
+    task_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    code       TEXT NOT NULL,
+    freq       TEXT NOT NULL,
+    d_start    TEXT NOT NULL,
+    d_end      TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'pending',  -- pending|running|done|failed
+    attempts   INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);</code></pre>
+<p>
+  规模测算（710 板块 × 5 年）：日频约 89 万行、分钟频约 8.4 亿行——分钟频<b>按需触发</b>（决策②）天然限量；
+  SQLite 写入走批量事务，读走 PK 索引，日频完全无压力；分钟频若后续出现压力再按年分表或评估 DuckDB（决策④留了口子）。
+</p>
+
+<h2>3. 覆盖台账算法（区间减法）</h2>
+<ol>
+  <li>请求 <code>(code, freq, [d0, d1])</code>，<code>d0</code> 早于库内最早已确认日期时按 <code>today − 5y</code> 收敛（决策②回溯下界）；</li>
+  <li>查 <code>trading_calendar</code> 得交易日集合 <code>T</code>（非交易日不算缺口）；</li>
+  <li>查 <code>quotation_coverage</code> 已确认集合 <code>C</code>（complete 与 empty 都算已确认）；</li>
+  <li>缺口 <code>M = T − C</code>：
+    <ul>
+      <li><code>M = ∅</code> → 纯读库返回，<code>state='complete'</code>；</li>
+      <li><code>M ≠ ∅</code> → 立即返回已有 bars（<code>state='partial'</code>，附 <code>missing_dates</code>）并投递后台补全任务（决策⑤）；</li>
+      <li>命中 <code>empty</code> 的日期直接返回空，不打接口（负缓存）。</li>
+    </ul>
+  </li>
+  <li>后台任务分片拉取（日频 ≤90 天/片、分钟 ≤5 天/片，片长按实测修正）：<code>INSERT OR REPLACE</code> 入库 → 逐日 upsert 台账：有 bar 写 <code>complete</code>，交易日但 0 bar 写 <code>empty</code>。</li>
+</ol>
+<p><b>新鲜度边界</b>：当日数据未收盘会变——今日（及分钟频当日已过但未收盘时段）不得写 <code>complete</code>；收盘判定以日历+时钟为准，次日重查自然覆盖。</p>
+
+<h2>4. 关键接口签名</h2>
+<pre><code># integrations/ifind/client.py（新增解析层，原始透传保留）
+def fetch_daily_bars(self, code: str, start: str, end: str) -> List[Dict]
+    # get_history_quotation 不复权口径 + 全指标一次拉全（读时投影，避免指标子集组合爆炸）
+def fetch_minute_bars(self, code: str, start_dt: str, end_dt: str) -> List[Dict]
+    # get_high_frequency 按 span 分片聚合
+
+# services/quotation.py（read-through 核心，新模块）
+@dataclass
+class QuotationResult:
+    bars: List[Dict]          # 已缓存部分，按日期/时间升序
+    state: str                # 'complete' | 'partial'
+    missing_dates: List[str]  # 已投递后台补全的日期
+
+class QuotationService:
+    def get_daily(self, code: str, start: str, end: str) -> QuotationResult
+    def get_minute(self, code: str, start: str, end: str) -> QuotationResult
+    def seed_calendar(self, years: int = 5) -> int   # 宽基指数日线播种交易日历
+
+# services/backfill.py（后台补全执行器，新模块）
+class BackfillRunner:
+    def enqueue(self, code, freq, missing_dates) -> None   # 去重：pending/running 同区间不重投
+    def run_pending(self, limit: int = ...) -> Dict        # 看板/任意调用方可触发恢复消费
+
+# 成分股历史懒加载（复用既有表与台账）
+class SectorStore:
+    def get_concept_members_history(self, code, d0, d1) -> 关系结果 + missing_dates  # 同构语义</code></pre>
+
+<h2>5. FastAPI + Vue 看板（决策③）</h2>
+<table>
+  <tr><th>层</th><th>内容</th></tr>
+  <tr>
+    <td>后端 <code>api/dashboard.py</code>（新 router）</td>
+    <td><code>GET /api/coverage?freq=1d</code> 覆盖率矩阵；<code>GET /api/bars</code> 行情序列；<code>GET /api/tasks</code> + <code>POST /api/tasks/retry</code> 任务管理；<code>POST /api/backfill</code> 手动补全；<code>GET /api/token</code> 凭据状态。挂载方式同现有 <code>build_router</code>。</td>
+  </tr>
+  <tr>
+    <td>前端 <code>web/</code>（Vue3 + Vite，按功能域组织）</td>
+    <td><code>features/coverage</code> 缺口热力图（板块 × 月份）；<code>features/browser</code> 成分股时间轴 + 行情走势（ECharts）；<code>features/tasks</code> 任务列表与重试。</td>
+  </tr>
+  <tr><td>分发</td><td><code>[dashboard]</code> extra（service + uvicorn）；<code>web/</code> 构建产物随包或独立部署，P2 定。</td></tr>
+</table>
+
+<h2>6. 分期与 P0 实测项</h2>
+<table>
+  <tr><th>阶段</th><th>内容</th></tr>
+  <tr><td>P0 地基</td><td>上述 DDL + <code>quotation_repo</code> + client 解析层 + <b>四项实测</b>（见下）+ 日历播种</td></tr>
+  <tr><td>P1 读路径</td><td><code>QuotationService</code>（立即返回+缺口清单）+ <code>BackfillRunner</code> + 成分股历史懒加载 + 测试</td></tr>
+  <tr><td>P2 看板</td><td>dashboard router + Vue 三域 + 分钟频分表评估</td></tr>
+</table>
+<div class="note warn">
+  <b>P0 必须先实测的四件事（阻塞设计收敛）：</b>
+  ① 接口3 不复权的 CPS 参数取值（'6'=前复权现金分红，不复权值待验证）；
+  ② 接口4 单次时间跨度上限（决定分钟分片大小）；
+  ③ 接口2 <code>iv_date</code> 历史回溯深度（成分股回填边界）；
+  ④ iFinD 配额/限流口径（并发与分片的节制依据）。
+</div>
+
+</main>
+
+<footer class="site-footer">
+  <div class="inner">
+    <span>ifind-sector-hub · 行情缓存设计（P0 草案，五决策已编入）</span>
+    <span><a href="https://github.com/seuzxh/ifind-sector-hub">GitHub 仓库</a></span>
+  </div>
+</footer>
+
+</body>
+</html>
