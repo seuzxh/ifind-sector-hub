@@ -177,3 +177,63 @@ class SmartPickTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FetchBarsTests(unittest.TestCase):
+    """行情区间解析层：分片、解析、不复权 payload。"""
+
+    def setUp(self):
+        self.client = make_client()
+
+    @staticmethod
+    def _resp(dates, closes):
+        return {"tables": [{"thscode": "885001.TI", "time": dates,
+                            "table": {"close": closes}}]}
+
+    def test_fetch_daily_bars_parses_and_chunks(self):
+        with mock.patch.object(self.client, "get_history_quotation") as gh:
+            gh.side_effect = [
+                self._resp(["2026-01-05"], [10.0]),
+                self._resp(["2026-04-02"], [11.0]),
+            ]
+            bars = self.client.fetch_daily_bars("885001.TI", "2026-01-01", "2026-04-30")
+        # 120 天区间按 90 天分片打两次
+        self.assertEqual(gh.call_count, 2)
+        self.assertEqual(bars, [
+            {"code": "885001.TI", "time": "2026-01-05", "close": 10.0},
+            {"code": "885001.TI", "time": "2026-04-02", "close": 11.0},
+        ])
+        # 分片边界连续且不越界
+        (args1, kwargs1), (args2, _) = gh.call_args_list
+        self.assertEqual(args1[1:3], ("2026-01-01", "2026-03-31"))
+        self.assertEqual(args2[1:3], ("2026-04-01", "2026-04-30"))
+        self.assertIsNone(kwargs1.get("cps"))  # 缺省不复权：不传 CPS
+
+    def test_fetch_minute_bars_chunks_by_five_days(self):
+        with mock.patch.object(self.client, "get_high_frequency") as ghf:
+            ghf.return_value = {"tables": []}
+            self.client.fetch_minute_bars("885001.TI", "2026-01-05", "2026-01-14")
+        self.assertEqual(ghf.call_count, 2)  # 10 天按 5 天/片
+        first, second = ghf.call_args_list
+        self.assertEqual(first[0][1:3], ("2026-01-05 09:00:00", "2026-01-09 16:00:00"))
+        self.assertEqual(second[0][1:3], ("2026-01-10 09:00:00", "2026-01-14 16:00:00"))
+
+    def test_get_history_quotation_cps_none_omits_cps(self):
+        with mock.patch.object(self.client, "_post") as post:
+            post.return_value = {}
+            self.client.get_history_quotation(["885001.TI"], "2026-01-01", "2026-01-31", cps=None)
+        payload = post.call_args[0][1]
+        self.assertNotIn("CPS", payload["functionpara"])
+        # 显式传 cps 仍在
+        with mock.patch.object(self.client, "_post") as post:
+            post.return_value = {}
+            self.client.get_history_quotation(["885001.TI"], "2026-01-01", "2026-01-31", cps="6")
+        self.assertEqual(post.call_args[0][1]["functionpara"]["CPS"], "6")
+
+    def test_bars_from_tables_short_arrays(self):
+        # 指标数组短于时间轴时缺位补 None，不抛错
+        resp = {"tables": [{"thscode": "X", "time": ["d1", "d2"],
+                            "table": {"close": [1.0]}}]}
+        from ifind_sector_hub.integrations.ifind.client import _bars_from_tables
+        bars = _bars_from_tables(resp)
+        self.assertEqual(bars[1]["close"], None)

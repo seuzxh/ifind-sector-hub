@@ -26,7 +26,7 @@
 
 <main>
 
-<h1>行情缓存设计（P0）</h1>
+<h1>行情缓存设计（P0）<span class="badge green">P0 已实施</span></h1>
 <p class="lead">目标：把本组件升级为 ifind 概念/行业板块的核心数据源——板块历史成分股与板块行情（日频/分钟频）落库缓存，读路径懒加载（库里有就不打接口，缺的只取缺失部分），配 FastAPI + Vue 看板查看与维护。</p>
 
 <div class="note">
@@ -164,7 +164,7 @@ class SectorStore:
 <h2>6. 分期与 P0 实测项</h2>
 <table>
   <tr><th>阶段</th><th>内容</th></tr>
-  <tr><td>P0 地基</td><td>上述 DDL + <code>quotation_repo</code> + client 解析层 + <b>四项实测</b>（见下）+ 日历播种</td></tr>
+  <tr><td>P0 地基</td><td><b>已实施</b>（<code>repositories/quotation.py</code> 五表 DDL + 仓储、client <code>fetch_daily_bars/fetch_minute_bars</code> 解析分片层、<code>services/quotation.py</code> 日历播种、hub 接线 <code>hub.quotation / hub.quotation_service</code>）；<b>四项实测</b>仍待有凭据环境执行（见下）</td></tr>
   <tr><td>P1 读路径</td><td><code>QuotationService</code>（立即返回+缺口清单）+ <code>BackfillRunner</code> + 成分股历史懒加载 + 测试</td></tr>
   <tr><td>P2 看板</td><td>dashboard router + Vue 三域 + 分钟频分表评估</td></tr>
 </table>

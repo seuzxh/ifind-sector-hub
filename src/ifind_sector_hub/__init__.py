@@ -19,11 +19,13 @@ from .core.codes import A_SHARE_CONCEPT_PREFIXES, A_SHARE_SUFFIXES, is_a_share_c
 from .core.tokens import FileTokenStore, TokenStore, resolve_tokens
 from .integrations.ifind.client import IFindClient
 from .repositories.storage import SectorStore
+from .repositories.quotation import QuotationRepository
 from .services.sync import SectorSync
+from .services.quotation import QuotationService
 
 __all__ = [
     "HubConfig", "SectorHub", "FileTokenStore", "TokenStore", "resolve_tokens",
-    "IFindClient", "SectorStore", "SectorSync",
+    "IFindClient", "SectorStore", "SectorSync", "QuotationRepository", "QuotationService",
     "is_a_share_code", "is_a_share_concept", "A_SHARE_SUFFIXES", "A_SHARE_CONCEPT_PREFIXES",
 ]
 
@@ -44,7 +46,7 @@ class HubConfig:
 
 
 class SectorHub:
-    """门面：聚合 client / store / sync，共享同一 token 管理与库文件。"""
+    """门面：聚合 client / store / sync / quotation，共享同一 token 管理与库文件。"""
 
     def __init__(self, cfg: HubConfig):
         if cfg.token_store is not None:
@@ -59,3 +61,5 @@ class SectorHub:
         self.store = SectorStore(cfg.db_path)
         self.sync = SectorSync(self.client, self.store,
                                concurrency=cfg.members_concurrency)
+        self.quotation = QuotationRepository(cfg.db_path)
+        self.quotation_service = QuotationService(self.client, self.quotation)

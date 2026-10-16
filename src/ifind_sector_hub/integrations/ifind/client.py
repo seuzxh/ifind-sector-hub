@@ -111,7 +111,7 @@ class IFindClient:
         end_date: str,
         indicators: str = "preClose,open,high,low,close,changeRatio",
         interval: str = "D",
-        cps: str = "6"
+        cps: Optional[str] = "6"
     ) -> dict:
         """
         获取历史行情日K线
@@ -124,17 +124,16 @@ class IFindClient:
         :return: API 原始响应
         """
         url = f"{self.base_url_ft}/cmd_history_quotation"
+        funcpara = {"Fill": "Previous", "Interval": interval}
+        if cps is not None:
+            funcpara["CPS"] = cps
         codes_str = ",".join(codes)
         payload = {
             "codes": codes_str,
             "indicators": indicators,
             "startdate": start_date,
             "enddate": end_date,
-            "functionpara": {
-                "Fill": "Previous",
-                "Interval": interval,
-                "CPS": cps
-            }
+            "functionpara": funcpara
         }
         return self._post(url, payload)
 
@@ -346,6 +345,41 @@ class IFindClient:
             })
         return rows
 
+    # ========== 行情区间解析层（缓存读路径专用） ==========
+    # 分片上限：日频 90 天/片、分钟 5 天/片（片长按接口实测修正，见 docs/cache-design.html）
+    DAILY_CHUNK_DAYS = 90
+    MINUTE_CHUNK_DAYS = 5
+    DAILY_INDICATORS = "preClose,open,high,low,close,volume,amount,changeRatio"
+    MINUTE_INDICATORS = "open,high,low,close,volume,changeRatio"
+
+    def fetch_daily_bars(self, code: str, start: str, end: str,
+                         indicators: str = None, cps: Optional[str] = None) -> List[Dict]:
+        """
+        区间拉取日频 bar（全指标一次拉全，读时投影；cps=None 不传复权参数=不复权口径，
+        具体取值待实测校准）。自动按 DAILY_CHUNK_DAYS 分片。
+        :return: [{"code", "time"(YYYY-MM-DD), <指标...>}]，按时间升序
+        """
+        bars: List[Dict] = []
+        for cs, ce in _day_chunks(start, end, self.DAILY_CHUNK_DAYS):
+            resp = self.get_history_quotation([code], cs, ce,
+                                              indicators=indicators or self.DAILY_INDICATORS,
+                                              cps=cps)
+            bars.extend(_bars_from_tables(resp))
+        return bars
+
+    def fetch_minute_bars(self, code: str, start_day: str, end_day: str,
+                          indicators: str = None) -> List[Dict]:
+        """
+        区间拉取 1min bar，按 MINUTE_CHUNK_DAYS 分片（单次跨度上限待实测校准）。
+        :return: [{"code", "time"(YYYY-MM-DD HH:MM...), <指标...>}]，按时间升序
+        """
+        bars: List[Dict] = []
+        for cs, ce in _day_chunks(start_day, end_day, self.MINUTE_CHUNK_DAYS):
+            resp = self.get_high_frequency([code], f"{cs} 09:00:00", f"{ce} 16:00:00",
+                                           indicators=indicators or self.MINUTE_INDICATORS)
+            bars.extend(_bars_from_tables(resp))
+        return bars
+
     # ========== 批量查询工具 ==========
     def batch_get_stock_concepts(
         self,
@@ -433,3 +467,34 @@ class IFindClient:
                     })
 
         return result
+
+
+def _day_chunks(start: str, end: str, chunk_days: int):
+    """把 [start, end] 日期区间切成不超过 chunk_days 天的连续片。"""
+    from datetime import date, timedelta
+    s, e = date.fromisoformat(start), date.fromisoformat(end)
+    while s <= e:
+        c = min(s + timedelta(days=chunk_days - 1), e)
+        yield s.isoformat(), c.isoformat()
+        s = c + timedelta(days=1)
+
+
+def _bars_from_tables(resp: dict) -> List[Dict]:
+    """
+    解析历史/高频行情响应为 bar 列表。
+    约定：tables[] 每项含 thscode 与 table{指标: [值,...]}，时间轴位于项级 time 字段
+    （与指标数组等长）——字段名待实测校准，届时只需调整本函数。
+    """
+    bars: List[Dict] = []
+    for item in resp.get("tables", []):
+        code = item.get("thscode", "")
+        table = item.get("table", {})
+        times = item.get("time") or table.get("time") or []
+        keys = [k for k in table if k != "time"]
+        for i, t in enumerate(times):
+            bar = {"code": code, "time": t}
+            for k in keys:
+                vals = table[k]
+                bar[k] = vals[i] if i < len(vals) else None
+            bars.append(bar)
+    return bars
