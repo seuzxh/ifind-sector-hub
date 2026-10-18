@@ -26,9 +26,9 @@ hub = SectorHub(HubConfig(
 ))
 
 hub.client.smart_pick_stocks("机器人概念板块成分股")  # 数据源（含 smart_pick_boards 枚举板块）
-hub.store.get_concept_members_map(["885001.TI"])    # 概念 → 成分股
+hub.store.get_concept_members_map(["885571.TI"])    # 概念 → 成分股
 hub.store.get_stock_memberships("600519.SH")        # 成分股 → 概念，同一权威表反查
-hub.sync.sync_concept_members_report(["885001.TI"], "20260918")  # 含失败码的同步报告
+hub.sync.sync_concept_members_report(["885571.TI"], "20260918")  # 含失败码的同步报告
 ```
 
 ## 模块（0.2.0 起：src 布局 + 分层子包）

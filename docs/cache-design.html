@@ -169,15 +169,18 @@ class SectorStore:
   <tr><td>P2 看板</td><td>dashboard router + Vue 三域 + 分钟频分表评估</td></tr>
 </table>
 <div class="note warn">
-  <b>四项实测进展（2026-10-15）：</b>
-  ① <b>已解决</b>：不复权 <code>CPS="1"</code>（用户手册：1-不复权，接口缺省亦为 1；手册见
-  <code>ifind-concept-trend/Docs/iFinD_HTTP_API_用户手册.md</code>），<code>fetch_daily_bars</code> 缺省已改为 "1"；
-  ② <b>待凭据</b>：接口4 单次跨度上限——手册的"最大 7 天"属交易流水接口，高频序列未标注，暂按 5 天/片保守分片；
-  ③ <b>待凭据</b>：接口2 <code>iv_date</code> 历史回溯深度；
-  ④ <b>已实测</b>：限流为<b>滑动窗口 20 次 / 2 秒</b>（响应头 <code>X-RateLimit-Limit/Remaining/Reset</code>），
-  回填并发须 ≤10 QPS 持续速率并在 P1 读取响应头自适应退避。
-  解析结构同时由 <code>ifind-concept-trend/Docs/ifind接口验证清单.md</code> 证实：列式数组、thscode/time 在项级外层。
-  当前 .env 中 refresh_token 已过期（-1301），②③ 需有效凭据后重跑 <code>scratch/probe.py</code>。
+  <b>四项实测全部完成（2026-10-15，真实接口）：</b>
+  ① <b>CPS</b>：不复权 <code>CPS="1"</code>；实测指数代码 CPS 不生效（None≡"1"≡"6" 同值——指数无分红），
+  股票代码 None≡"1"≠"6"；<code>fetch_daily_bars</code> 缺省 "1" 无害且对股票正确；
+  ② <b>分钟跨度</b>：实测 30 天/5061 bars 通过、无跨度报错，<code>MINUTE_CHUNK_DAYS</code> 已从 5 调至 30
+  （时间格式 YYYY-MM-DD HH:MM，09:30–15:00 共 241 根/日；空 functionpara 可用）；
+  ③ <b>iv_date 回溯</b>：实测至少 8 年（2018-10 仍返回 85 只成分，逐年递增 85→351），
+  近 5 年回填完全可行；
+  ④ <b>限流</b>：滑动窗口 <b>20 次 / 2 秒</b>（响应头 <code>X-RateLimit-Limit/Remaining/Reset</code>），
+  回填并发须 ≤10 QPS 持续速率，P1 读取响应头自适应退避。
+  <b>附带发现</b>：示例常用码 <code>885001.TI</code> 实为无效码（-4210 参数错/-4001 无数据）——
+  真实板块码必须以 <code>smart_pick_boards</code> 枚举为准（实测 390 个概念，如 885571.TI 核电），
+  文档示例已全部替换；解析结构（列式数组、thscode/time 在项级外层）实测证实与 <code>_bars_from_tables</code> 一致。
 </div>
 
 </main>

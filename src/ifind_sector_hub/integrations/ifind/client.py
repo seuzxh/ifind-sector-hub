@@ -346,9 +346,9 @@ class IFindClient:
         return rows
 
     # ========== 行情区间解析层（缓存读路径专用） ==========
-    # 分片上限：日频 90 天/片、分钟 5 天/片（片长按接口实测修正，见 docs/cache-design.html）
+    # 分片上限（实测 2026-10：分钟 30 天/5061 bars 通过，无跨度报错；片长见 docs/cache-design.html）
     DAILY_CHUNK_DAYS = 90
-    MINUTE_CHUNK_DAYS = 5
+    MINUTE_CHUNK_DAYS = 30
     DAILY_INDICATORS = "preClose,open,high,low,close,volume,amount,changeRatio"
     MINUTE_INDICATORS = "open,high,low,close,volume,changeRatio"
 
@@ -356,7 +356,8 @@ class IFindClient:
                          indicators: str = None, cps: Optional[str] = "1") -> List[Dict]:
         """
         区间拉取日频 bar（全指标一次拉全，读时投影）。缓存口径只存不复权：
-        CPS="1"（用户手册：1-不复权，接口缺省亦为 1）。自动按 DAILY_CHUNK_DAYS 分片。
+        CPS="1"（实测：指数代码 CPS 不生效——None≡"1"≡"6" 同值，指数无分红；
+        股票代码上 None≡"1"≠"6"）。自动按 DAILY_CHUNK_DAYS 分片。
         :return: [{"code", "time"(YYYY-MM-DD), <指标...>}]，按时间升序
         """
         bars: List[Dict] = []

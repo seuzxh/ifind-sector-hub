@@ -209,14 +209,15 @@ class FetchBarsTests(unittest.TestCase):
         self.assertEqual(args2[1:3], ("2026-04-01", "2026-04-30"))
         self.assertEqual(kwargs1.get("cps"), "1")  # 缺省不复权：CPS="1"（手册口径）
 
-    def test_fetch_minute_bars_chunks_by_five_days(self):
+    def test_fetch_minute_bars_chunks_by_thirty_days(self):
         with mock.patch.object(self.client, "get_high_frequency") as ghf:
             ghf.return_value = {"tables": []}
-            self.client.fetch_minute_bars("885001.TI", "2026-01-05", "2026-01-14")
-        self.assertEqual(ghf.call_count, 2)  # 10 天按 5 天/片
-        first, second = ghf.call_args_list
-        self.assertEqual(first[0][1:3], ("2026-01-05 09:00:00", "2026-01-09 16:00:00"))
-        self.assertEqual(second[0][1:3], ("2026-01-10 09:00:00", "2026-01-14 16:00:00"))
+            self.client.fetch_minute_bars("885571.TI", "2026-01-05", "2026-03-15")
+        self.assertEqual(ghf.call_count, 3)  # 70 天按实测 30 天/片
+        first, second, third = ghf.call_args_list
+        self.assertEqual(first[0][1:3], ("2026-01-05 09:00:00", "2026-02-03 16:00:00"))
+        self.assertEqual(second[0][1:3], ("2026-02-04 09:00:00", "2026-03-05 16:00:00"))
+        self.assertEqual(third[0][1:3], ("2026-03-06 09:00:00", "2026-03-15 16:00:00"))
 
     def test_get_history_quotation_cps_none_omits_cps(self):
         with mock.patch.object(self.client, "_post") as post:
