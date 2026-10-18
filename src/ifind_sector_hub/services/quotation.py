@@ -4,8 +4,9 @@
 from datetime import date, timedelta
 
 DEFAULT_LOOKBACK_YEARS = 5
-# 日历向未来多取的天数：未来日历为固定数据，接口直接给出，缓存后今日后的缺口计算即可用
-CALENDAR_FUTURE_DAYS = 400
+# 日历默认播种范围（固定数据，单次接口即可全程覆盖；实测上限可回溯至 1990-12-19 A股开市日）
+CALENDAR_START = "2020-01-01"
+CALENDAR_END = "2028-12-31"
 
 
 class QuotationService:
@@ -16,14 +17,11 @@ class QuotationService:
         self.repo = repo
         self.lookback_years = lookback_years
 
-    def seed_calendar(self, years: int = None) -> int:
+    def seed_calendar(self, start: str = CALENDAR_START, end: str = CALENDAR_END) -> int:
         """
         经 get_trade_dates 专用接口播种交易日历（权威固定数据），返回日历总天数（幂等）。
-        范围：回溯下界 ~ 今日 + 400 天（未来日历接口直接给出）。
+        默认 2020-2028 全覆盖（实测单次 2182 个交易日）；未来日历接口直接给出。
         """
-        years = years or self.lookback_years
-        start = (date.today() - timedelta(days=365 * years + 30)).isoformat()
-        end = (date.today() + timedelta(days=CALENDAR_FUTURE_DAYS)).isoformat()
         dates = self.client.get_trade_dates(start, end)
         return self.repo.seed_calendar(dates)
 
