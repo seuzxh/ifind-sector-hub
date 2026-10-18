@@ -353,10 +353,10 @@ class IFindClient:
     MINUTE_INDICATORS = "open,high,low,close,volume,changeRatio"
 
     def fetch_daily_bars(self, code: str, start: str, end: str,
-                         indicators: str = None, cps: Optional[str] = None) -> List[Dict]:
+                         indicators: str = None, cps: Optional[str] = "1") -> List[Dict]:
         """
-        区间拉取日频 bar（全指标一次拉全，读时投影；cps=None 不传复权参数=不复权口径，
-        具体取值待实测校准）。自动按 DAILY_CHUNK_DAYS 分片。
+        区间拉取日频 bar（全指标一次拉全，读时投影）。缓存口径只存不复权：
+        CPS="1"（用户手册：1-不复权，接口缺省亦为 1）。自动按 DAILY_CHUNK_DAYS 分片。
         :return: [{"code", "time"(YYYY-MM-DD), <指标...>}]，按时间升序
         """
         bars: List[Dict] = []
@@ -482,8 +482,9 @@ def _day_chunks(start: str, end: str, chunk_days: int):
 def _bars_from_tables(resp: dict) -> List[Dict]:
     """
     解析历史/高频行情响应为 bar 列表。
-    约定：tables[] 每项含 thscode 与 table{指标: [值,...]}，时间轴位于项级 time 字段
-    （与指标数组等长）——字段名待实测校准，届时只需调整本函数。
+    结构已由实测口径证实（ifind-concept-trend/Docs 接口验证清单）：列式数组，
+    thscode/time 在项级外层，table{指标: [值,...]} 与 time 等长；分钟时间格式
+    "YYYY-MM-DD HH:MM"。若实测发现差异只需调整本函数。
     """
     bars: List[Dict] = []
     for item in resp.get("tables", []):

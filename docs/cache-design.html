@@ -169,11 +169,15 @@ class SectorStore:
   <tr><td>P2 看板</td><td>dashboard router + Vue 三域 + 分钟频分表评估</td></tr>
 </table>
 <div class="note warn">
-  <b>P0 必须先实测的四件事（阻塞设计收敛）：</b>
-  ① 接口3 不复权的 CPS 参数取值（'6'=前复权现金分红，不复权值待验证）；
-  ② 接口4 单次时间跨度上限（决定分钟分片大小）；
-  ③ 接口2 <code>iv_date</code> 历史回溯深度（成分股回填边界）；
-  ④ iFinD 配额/限流口径（并发与分片的节制依据）。
+  <b>四项实测进展（2026-10-15）：</b>
+  ① <b>已解决</b>：不复权 <code>CPS="1"</code>（用户手册：1-不复权，接口缺省亦为 1；手册见
+  <code>ifind-concept-trend/Docs/iFinD_HTTP_API_用户手册.md</code>），<code>fetch_daily_bars</code> 缺省已改为 "1"；
+  ② <b>待凭据</b>：接口4 单次跨度上限——手册的"最大 7 天"属交易流水接口，高频序列未标注，暂按 5 天/片保守分片；
+  ③ <b>待凭据</b>：接口2 <code>iv_date</code> 历史回溯深度；
+  ④ <b>已实测</b>：限流为<b>滑动窗口 20 次 / 2 秒</b>（响应头 <code>X-RateLimit-Limit/Remaining/Reset</code>），
+  回填并发须 ≤10 QPS 持续速率并在 P1 读取响应头自适应退避。
+  解析结构同时由 <code>ifind-concept-trend/Docs/ifind接口验证清单.md</code> 证实：列式数组、thscode/time 在项级外层。
+  当前 .env 中 refresh_token 已过期（-1301），②③ 需有效凭据后重跑 <code>scratch/probe.py</code>。
 </div>
 
 </main>

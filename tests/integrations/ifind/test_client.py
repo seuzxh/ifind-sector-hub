@@ -207,7 +207,7 @@ class FetchBarsTests(unittest.TestCase):
         (args1, kwargs1), (args2, _) = gh.call_args_list
         self.assertEqual(args1[1:3], ("2026-01-01", "2026-03-31"))
         self.assertEqual(args2[1:3], ("2026-04-01", "2026-04-30"))
-        self.assertIsNone(kwargs1.get("cps"))  # 缺省不复权：不传 CPS
+        self.assertEqual(kwargs1.get("cps"), "1")  # 缺省不复权：CPS="1"（手册口径）
 
     def test_fetch_minute_bars_chunks_by_five_days(self):
         with mock.patch.object(self.client, "get_high_frequency") as ghf:
