@@ -238,3 +238,16 @@ class FetchBarsTests(unittest.TestCase):
         from ifind_sector_hub.integrations.ifind.client import _bars_from_tables
         bars = _bars_from_tables(resp)
         self.assertEqual(bars[1]["close"], None)
+
+
+class GetTradeDatesTests(unittest.TestCase):
+    def test_get_trade_dates_parses_dict_tables(self):
+        client = make_client()
+        with mock.patch.object(client, "_post") as post:
+            post.return_value = {"errorcode": 0,
+                                 "tables": {"time": ["2026-10-12", "2026-10-13"]}}
+            dates = client.get_trade_dates("2026-10-01", "2026-10-31")
+        self.assertEqual(dates, ["2026-10-12", "2026-10-13"])
+        payload = post.call_args[0][1]
+        self.assertEqual(payload["marketcode"], "212001")
+        self.assertEqual(payload["startdate"], "2026-10-01")

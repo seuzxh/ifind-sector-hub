@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS quotation_coverage (
     PRIMARY KEY (code, freq, trade_date)
 );
 
--- 交易日历（周末/节假日不算缺口）
+-- 交易日历（周末/节假日不算缺口；来源 get_trade_dates 专用接口，含未来日期）
 CREATE TABLE IF NOT EXISTS trading_calendar (
     trade_date TEXT PRIMARY KEY
 );
@@ -136,7 +136,7 @@ class QuotationResult:
 class QuotationService:
     def get_daily(self, code: str, start: str, end: str) -> QuotationResult
     def get_minute(self, code: str, start: str, end: str) -> QuotationResult
-    def seed_calendar(self, years: int = 5) -> int   # 宽基指数日线播种交易日历
+    def seed_calendar(self, years: int = 5) -> int   # 经 get_trade_dates 专用接口播种（含未来 400 天日历）
 
 # services/backfill.py（后台补全执行器，新模块）
 class BackfillRunner:

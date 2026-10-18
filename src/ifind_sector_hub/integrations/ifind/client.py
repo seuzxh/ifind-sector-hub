@@ -345,6 +345,25 @@ class IFindClient:
             })
         return rows
 
+    # ========== 交易日历（get_trade_dates，固定数据） ==========
+    def get_trade_dates(self, start_date: str, end_date: str,
+                        marketcode: str = "212001") -> List[str]:
+        """
+        查询交易日历（实测 2026-10：tables 为字典 {"time": [日期,...]}，YYYY-MM-DD 格式；
+        假日/周末自动排除；enddate 可为未来日期——未来日历接口直接给出）。
+        :param marketcode: 212001=A股
+        """
+        url = f"{self.base_url_quant}/get_trade_dates"
+        payload = {
+            "marketcode": marketcode,
+            "functionpara": {"mode": "1", "dateType": "0", "period": "D", "dateFormat": "0"},
+            "startdate": start_date,
+            "enddate": end_date,
+        }
+        resp = self._post(url, payload)
+        tables = resp.get("tables") or {}
+        return list(tables.get("time") or [])
+
     # ========== 行情区间解析层（缓存读路径专用） ==========
     # 分片上限（实测 2026-10：分钟 30 天/5061 bars 通过，无跨度报错；片长见 docs/cache-design.html）
     DAILY_CHUNK_DAYS = 90
